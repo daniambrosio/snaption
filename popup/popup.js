@@ -31,10 +31,18 @@ async function init() {
   $('workspace-name').textContent = authStatus.workspace || 'Notion';
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  state.tabInfo = await msg('GET_TAB_INFO', { tabId: tab.id });
+
+  // Fetch tab info and the selected template's DB schema in parallel
+  const tpl = currentTemplate();
+  const [tabInfo, schema] = await Promise.all([
+    msg('GET_TAB_INFO', { tabId: tab.id }),
+    tpl ? msg('GET_DB_SCHEMA', { databaseId: tpl.databaseId }) : Promise.resolve(null),
+  ]);
+  state.tabInfo = tabInfo;
+  state.schema = schema && !schema.error ? schema : null;
 
   renderTemplatePicker();
-  applyTemplate();
+  await applyTemplate();
   showView('save');
 }
 
@@ -58,9 +66,15 @@ function currentTemplate() {
 
 // Render editable inputs for 'auto' properties (user can override the captured value)
 // and a compact preview of 'fixed' properties (silently applied)
-function applyTemplate() {
+async function applyTemplate() {
   const tpl = currentTemplate();
   if (!tpl) return;
+
+  // If the user switched templates to a different database, refetch schema
+  if (state.schema?.id !== tpl.databaseId) {
+    const fresh = await msg('GET_DB_SCHEMA', { databaseId: tpl.databaseId });
+    state.schema = fresh && !fresh.error ? fresh : null;
+  }
 
   state.overrides = {};
 
@@ -69,15 +83,20 @@ function applyTemplate() {
   autoForm.innerHTML = '';
   preview.innerHTML = '';
 
+  const validNames = new Set((state.schema?.properties || []).map(p => p.name));
+  const hasSchema = !!state.schema;
+
   const autoEntries = [];
   const fixedEntries = [];
 
   for (const [propName, cfg] of Object.entries(tpl.properties || {})) {
+    // Drop stale references to properties no longer in the DB
+    if (hasSchema && !validNames.has(propName)) continue;
     if (cfg.mode === 'auto') autoEntries.push([propName, cfg]);
     else if (cfg.mode === 'fixed') fixedEntries.push([propName, cfg]);
   }
 
-  // Editable auto fields
+  // Editable auto fields, each with a skip-this-field (×) button
   for (const [propName, cfg] of autoEntries) {
     const value = autoValueFromTab(cfg.autoField, state.tabInfo);
     const readonly = cfg.autoField === 'url';
@@ -85,7 +104,10 @@ function applyTemplate() {
 
     autoForm.insertAdjacentHTML('beforeend', `
       <div class="field" data-prop="${escapeHtml(propName)}">
-        <label>${escapeHtml(propName)}</label>
+        <div class="field-header">
+          <label>${escapeHtml(propName)}</label>
+          <button class="skip-field" data-skip="${escapeHtml(propName)}" title="Don't include this field — saved to template">✕</button>
+        </div>
         ${multiline
           ? `<textarea rows="2" data-override="${escapeHtml(propName)}">${escapeHtml(value || '')}</textarea>`
           : `<input type="text" ${readonly ? 'readonly' : ''} value="${escapeHtml(value || '')}" data-override="${escapeHtml(propName)}" />`
@@ -99,8 +121,12 @@ function applyTemplate() {
     el.addEventListener('input', () => {
       state.overrides[el.dataset.override] = el.value;
     });
-    // Seed the override with the current value so save-time uses the user's edits
     state.overrides[el.dataset.override] = el.value;
+  });
+
+  // Wire up skip-field buttons
+  autoForm.querySelectorAll('[data-skip]').forEach(btn => {
+    btn.addEventListener('click', () => skipField(btn.dataset.skip));
   });
 
   // Fixed value preview (non-editable summary)
@@ -129,6 +155,20 @@ function applyTemplate() {
   } else {
     $('screenshot-wrap').classList.add('hidden');
   }
+}
+
+// Flip a property's mode to 'skip' in the template, persist, and re-render
+async function skipField(propName) {
+  const tpl = currentTemplate();
+  if (!tpl) return;
+
+  tpl.properties = tpl.properties || {};
+  tpl.properties[propName] = { ...(tpl.properties[propName] || {}), mode: 'skip' };
+
+  // Persist the updated templates list
+  await chrome.storage.sync.set({ templates: state.templates });
+
+  await applyTemplate();
 }
 
 function autoValueFromTab(field, tabInfo) {
@@ -213,12 +253,12 @@ $('btn-open-settings')?.addEventListener('click', () => chrome.runtime.openOptio
 $('btn-settings')?.addEventListener('click', () => chrome.runtime.openOptionsPage());
 $('btn-save')?.addEventListener('click', handleSave);
 
-$('template-picker').addEventListener('click', (e) => {
+$('template-picker').addEventListener('click', async (e) => {
   const btn = e.target.closest('.template-pill');
   if (!btn) return;
   state.selectedTemplateId = btn.dataset.id;
   renderTemplatePicker();
-  applyTemplate();
+  await applyTemplate();
 });
 
 $('open-notion-link')?.addEventListener('click', (e) => {
