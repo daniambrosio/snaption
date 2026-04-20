@@ -148,24 +148,38 @@ async function loadSchemaAndRenderMapping(databaseId) {
 function renderMappingDropdowns(properties, currentMapping) {
   for (const slot of ['title', 'url', 'description', 'tags']) {
     const select = $(`map-${slot}`);
+    const row = select.closest('tr');
     const compatible = properties.filter(p => COMPATIBLE_TYPES[slot].includes(p.type));
     const required = REQUIRED_SLOTS.includes(slot);
+
+    // Hide optional rows that have no compatible property in this DB
+    if (!required && compatible.length === 0) {
+      row.classList.add('hidden');
+      select.innerHTML = '';
+      continue;
+    }
+    row.classList.remove('hidden');
+
+    // Required rows with no compatible property: show a disabled explanatory option
+    if (required && compatible.length === 0) {
+      select.innerHTML = `<option value="">— no ${COMPATIBLE_TYPES[slot].join(' or ')} property in this database —</option>`;
+      select.disabled = true;
+      continue;
+    }
+    select.disabled = false;
 
     select.innerHTML =
       (required ? '' : '<option value="">— None —</option>') +
       compatible.map(p =>
-        `<option value="${escapeHtml(p.name)}" data-type="${p.type}">${escapeHtml(p.name)} <small>(${p.type})</small></option>`
+        `<option value="${escapeHtml(p.name)}" data-type="${p.type}">${escapeHtml(p.name)} (${p.type})</option>`
       ).join('');
 
-    // Restore current value if it still exists in this database's schema
     const saved = currentMapping[slot];
     if (saved && compatible.some(p => p.name === saved.name)) {
       select.value = saved.name;
     } else if (slot === 'title' && compatible.length === 1) {
-      // Auto-pick the single title property
       select.value = compatible[0].name;
     } else if (slot === 'url') {
-      // Prefer a property literally named "URL" or "Url"
       const preferred = compatible.find(p => /^url$/i.test(p.name));
       if (preferred) select.value = preferred.name;
     }
@@ -309,12 +323,24 @@ $('tpl-db').addEventListener('change', async (e) => {
 
 $('btn-refresh-dbs').addEventListener('click', async (e) => {
   e.preventDefault();
-  e.target.textContent = 'Refreshing…';
-  await chrome.storage.sync.remove('databases');
-  state.databases = [];
-  await ensureDatabasesLoaded();
-  renderDatabaseSelect();
-  e.target.textContent = 'Refresh';
+  const link = e.target;
+  const originalText = link.textContent;
+  link.textContent = 'Refreshing…';
+
+  const selectedId = $('tpl-db').value;
+
+  if (selectedId) {
+    // Refresh the schema of the currently-selected database
+    await loadSchemaAndRenderMapping(selectedId);
+  } else {
+    // Nothing selected → refresh the list of available databases
+    await chrome.storage.sync.remove('databases');
+    state.databases = [];
+    await ensureDatabasesLoaded();
+    renderDatabaseSelect();
+  }
+
+  link.textContent = originalText;
 });
 
 init();

@@ -24,10 +24,15 @@ function chunk(type, data) {
   return Buffer.concat([len, t, data, crc]);
 }
 
-// Rounded black square with white "N" — minimal raster
+// Rounded square background with a camera-lens "S" letter
+// Background: deep indigo gradient-feel (single tone, #2A2A5E)
+// Foreground: white "S"
+const BG = [42, 42, 94];
+const FG = [255, 255, 255];
+
 function makePng(size) {
   const bytes = new Uint8Array(size * size * 4);
-  const radius = Math.floor(size * 0.18);
+  const radius = Math.floor(size * 0.22);
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -35,10 +40,10 @@ function makePng(size) {
       const inRounded = isInsideRounded(x, y, size, radius);
       if (!inRounded) { bytes[i+3] = 0; continue; }
 
-      if (isN(x, y, size)) {
-        bytes[i] = 255; bytes[i+1] = 255; bytes[i+2] = 255; bytes[i+3] = 255;
+      if (isS(x, y, size)) {
+        bytes[i] = FG[0]; bytes[i+1] = FG[1]; bytes[i+2] = FG[2]; bytes[i+3] = 255;
       } else {
-        bytes[i] = 0; bytes[i+1] = 0; bytes[i+2] = 0; bytes[i+3] = 255;
+        bytes[i] = BG[0]; bytes[i+1] = BG[1]; bytes[i+2] = BG[2]; bytes[i+3] = 255;
       }
     }
   }
@@ -79,27 +84,31 @@ function isInsideRounded(x, y, size, r) {
   return dx * dx + dy * dy <= r * r;
 }
 
-// Draw a stylized "N" — two verticals + a diagonal
-function isN(x, y, size) {
-  const pad = Math.round(size * 0.28);
-  const thick = Math.max(1, Math.round(size * 0.13));
+// Draw a stylized "S" — three horizontal bars connected by alternating vertical segments
+// Shape:   ━━━━
+//          │
+//          ━━━━
+//             │
+//          ━━━━
+function isS(x, y, size) {
+  const pad = Math.round(size * 0.26);
+  const thick = Math.max(1, Math.round(size * 0.14));
   const left = pad;
-  const right = size - pad - thick;
+  const right = size - pad;
   const top = pad;
   const bottom = size - pad;
+  const mid = Math.round((top + bottom) / 2 - thick / 2);
 
-  if (y < top || y >= bottom) return false;
+  // Three horizontal bars (top / middle / bottom)
+  if (y >= top && y < top + thick && x >= left && x < right) return true;
+  if (y >= mid && y < mid + thick && x >= left && x < right) return true;
+  if (y >= bottom - thick && y < bottom && x >= left && x < right) return true;
 
-  // left vertical
-  if (x >= left && x < left + thick) return true;
-  // right vertical
-  if (x >= right && x < right + thick) return true;
-  // diagonal from top-left to bottom-right of the N interior
-  const h = bottom - top;
-  const w = right - left;
-  const t = (y - top) / h;
-  const dx = left + t * w;
-  if (Math.abs(x - dx) <= thick * 0.7) return true;
+  // Left vertical (between top and middle bars)
+  if (y >= top && y < mid + thick && x >= left && x < left + thick) return true;
+
+  // Right vertical (between middle and bottom bars)
+  if (y >= mid && y < bottom && x >= right - thick && x < right) return true;
 
   return false;
 }

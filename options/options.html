@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Notch · Settings</title>
+  <title>Snaption · Settings</title>
   <link rel="stylesheet" href="options.css" />
 </head>
 <body>
   <div class="container">
-    <h1>Notch</h1>
-    <p class="tagline">Save bookmarks to Notion, one notch at a time.</p>
+    <h1>Snaption</h1>
+    <p class="tagline">Snap any page into Notion — with caption, tags, and screenshot.</p>
 
     <!-- Auth section -->
     <section class="card" id="section-auth">
@@ -71,20 +71,21 @@
         <div class="field">
           <div class="row-between">
             <label for="tpl-db">Database</label>
-            <button id="btn-refresh-dbs" class="link-btn">Refresh</button>
+            <button id="btn-refresh-dbs" class="link-btn" title="Refresh the selected database's properties, or the list if none is selected">↻ Refresh</button>
           </div>
           <select id="tpl-db">
             <option value="">— Select a database —</option>
           </select>
+          <p class="hint small" id="db-hint">After picking a database, Snaption reads its properties and offers only compatible ones below.</p>
         </div>
 
         <div id="mapping-section" class="hidden">
           <h3>Field mapping</h3>
-          <p class="hint small">Map bookmark fields to properties in your selected database.</p>
+          <p class="hint small">Pick which Notion property stores each piece of bookmark data. Only compatible properties are listed; fields with no match are hidden.</p>
 
           <table class="mapping-table">
             <thead>
-              <tr><th>Bookmark field</th><th>Notion property</th></tr>
+              <tr><th>Snaption field</th><th>Notion property in this database</th></tr>
             </thead>
             <tbody>
               <tr>

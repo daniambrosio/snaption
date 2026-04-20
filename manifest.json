@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Notch",
+  "name": "Snaption",
   "version": "1.0.0",
   "description": "Save bookmarks with screenshots to your Notion databases",
   "permissions": ["tabs", "storage", "activeTab", "scripting"],

@@ -152,6 +152,11 @@ async function getDatabaseSchema(databaseId) {
 }
 
 // ─── Screenshot upload to Notion ─────────────────────────────────────────────
+// Notion file_uploads: create upload → POST binary to /send → reference by id
+// Free workspaces: 5 MB per file cap. Paid: 5 GB.
+const FILE_UPLOAD_VERSION = '2026-03-11';
+const FREE_TIER_LIMIT_BYTES = 5 * 1024 * 1024;
+
 async function uploadScreenshot(base64DataUrl) {
   const { notionToken } = await chrome.storage.sync.get('notionToken');
 
@@ -161,29 +166,53 @@ async function uploadScreenshot(base64DataUrl) {
   for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
   const blob = new Blob([bytes], { type: 'image/png' });
 
+  if (blob.size > FREE_TIER_LIMIT_BYTES) {
+    throw new Error(`Screenshot is ${(blob.size / 1024 / 1024).toFixed(1)} MB — Notion free workspaces cap uploads at 5 MB. Try a smaller page.`);
+  }
+
+  const filename = `snaption-${Date.now()}.png`;
+
+  // Step 1: Create the file_upload slot
   const createRes = await fetch(`${NOTION_API_BASE}/file_uploads`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${notionToken}`,
-      'Notion-Version': '2026-03-11',
+      'Notion-Version': FILE_UPLOAD_VERSION,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ file: { filename: `screenshot-${Date.now()}.png` } }),
+    body: JSON.stringify({
+      mode: 'single_part',
+      filename,
+      content_type: 'image/png',
+    }),
   });
 
-  if (!createRes.ok) throw new Error('Failed to create file upload slot');
-  const { id: fileUploadId, upload_url: uploadUrl } = await createRes.json();
+  if (!createRes.ok) {
+    const errText = await createRes.text();
+    throw new Error(`Create upload failed (${createRes.status}): ${errText.slice(0, 200)}`);
+  }
 
+  const { id: fileUploadId } = await createRes.json();
+
+  // Step 2: Send the binary via multipart/form-data to /send
   const formData = new FormData();
-  formData.append('file', blob, `screenshot-${Date.now()}.png`);
+  formData.append('file', blob, filename);
 
-  const uploadRes = await fetch(uploadUrl, {
+  const sendRes = await fetch(`${NOTION_API_BASE}/file_uploads/${fileUploadId}/send`, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${notionToken}` },
+    headers: {
+      'Authorization': `Bearer ${notionToken}`,
+      'Notion-Version': FILE_UPLOAD_VERSION,
+      // Do NOT set Content-Type — browser sets multipart boundary automatically
+    },
     body: formData,
   });
 
-  if (!uploadRes.ok) throw new Error('Failed to upload screenshot');
+  if (!sendRes.ok) {
+    const errText = await sendRes.text();
+    throw new Error(`Upload send failed (${sendRes.status}): ${errText.slice(0, 200)}`);
+  }
+
   return fileUploadId;
 }
 
@@ -199,22 +228,29 @@ async function saveBookmark({ databaseId, fields, screenshot, fieldMapping }) {
     }),
   });
 
+  // Screenshot is best-effort: if it fails, the page is still saved.
+  // We return a warning field instead of failing the whole save.
+  let screenshotWarning = null;
   if (screenshot) {
-    const fileUploadId = await uploadScreenshot(screenshot);
-    await notionFetch(`/blocks/${page.id}/children`, {
-      method: 'PATCH',
-      headers: { 'Notion-Version': '2026-03-11' },
-      body: JSON.stringify({
-        children: [{
-          object: 'block',
-          type: 'image',
-          image: { type: 'file', file: { file_upload_id: fileUploadId } },
-        }],
-      }),
-    });
+    try {
+      const fileUploadId = await uploadScreenshot(screenshot);
+      await notionFetch(`/blocks/${page.id}/children`, {
+        method: 'PATCH',
+        headers: { 'Notion-Version': FILE_UPLOAD_VERSION },
+        body: JSON.stringify({
+          children: [{
+            object: 'block',
+            type: 'image',
+            image: { type: 'file_upload', file_upload: { id: fileUploadId } },
+          }],
+        }),
+      });
+    } catch (err) {
+      screenshotWarning = err.message;
+    }
   }
 
-  return { success: true, pageId: page.id, pageUrl: page.url };
+  return { success: true, pageId: page.id, pageUrl: page.url, screenshotWarning };
 }
 
 function buildProperties(fields, mapping) {

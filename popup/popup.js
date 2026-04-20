@@ -12,7 +12,7 @@ async function init() {
 
   const authStatus = await msg('GET_AUTH_STATUS');
   if (!authStatus.authenticated) {
-    $('setup-message').textContent = 'Set up Notch to start saving bookmarks.';
+    $('setup-message').textContent = 'Set up Snaption to start saving bookmarks.';
     showView('setup');
     return;
   }
@@ -58,11 +58,21 @@ function applyTemplate() {
   const tpl = currentTemplate();
   if (!tpl) return;
 
-  // Show/hide description + tags based on whether template maps them
-  $('field-description-wrap').classList.toggle('hidden', !tpl.mapping.description);
-  $('field-tags-wrap').classList.toggle('hidden', !tpl.mapping.tags);
+  // Show/hide each field based on whether the template maps it,
+  // AND relabel using the actual Notion property name
+  for (const slot of ['title', 'url', 'description', 'tags']) {
+    const wrap = $(`field-${slot}-wrap`);
+    const label = $(`label-${slot}`);
+    const mapped = tpl.mapping[slot];
 
-  // Screenshot default from template
+    if (!mapped) {
+      wrap.classList.add('hidden');
+      continue;
+    }
+    wrap.classList.remove('hidden');
+    label.textContent = mapped.name;
+  }
+
   $('include-screenshot').checked = tpl.includeScreenshot !== false;
 }
 
@@ -117,6 +127,9 @@ async function handleSave() {
   }
 
   $('open-notion-link').href = result.pageUrl;
+  $('success-msg').textContent = result.screenshotWarning
+    ? `Saved, but screenshot failed: ${result.screenshotWarning}`
+    : 'Saved to Notion!';
   showView('success');
 }
 

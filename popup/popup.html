@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Notch</title>
+  <title>Snaption</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
@@ -12,8 +12,8 @@
     <!-- Not authenticated / no templates -->
     <div id="view-setup" class="view hidden">
       <div class="empty-state">
-        <div class="logo">N</div>
-        <p id="setup-message">Set up Notch to start saving bookmarks.</p>
+        <div class="logo">S</div>
+        <p id="setup-message">Set up Snaption to start saving bookmarks.</p>
         <button id="btn-open-settings" class="btn btn-primary">Open Settings</button>
       </div>
     </div>
@@ -42,20 +42,20 @@
       </div>
 
       <div class="form">
-        <div class="field">
-          <label for="field-title">Title</label>
+        <div class="field" id="field-title-wrap">
+          <label for="field-title" id="label-title">Title</label>
           <input id="field-title" type="text" placeholder="Page title" />
         </div>
-        <div class="field">
-          <label for="field-url">URL</label>
+        <div class="field" id="field-url-wrap">
+          <label for="field-url" id="label-url">URL</label>
           <input id="field-url" type="text" readonly />
         </div>
         <div class="field" id="field-description-wrap">
-          <label for="field-description">Description</label>
-          <textarea id="field-description" rows="2" placeholder="Optional description"></textarea>
+          <label for="field-description" id="label-description">Description</label>
+          <textarea id="field-description" rows="2" placeholder="Optional note"></textarea>
         </div>
         <div class="field" id="field-tags-wrap">
-          <label for="field-tags">Tags</label>
+          <label for="field-tags" id="label-tags">Tags</label>
           <input id="field-tags" type="text" placeholder="tag1, tag2" />
         </div>
       </div>
