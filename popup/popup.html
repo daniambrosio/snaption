@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Notch</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Not authenticated / no templates -->
+    <div id="view-setup" class="view hidden">
+      <div class="empty-state">
+        <div class="logo">N</div>
+        <p id="setup-message">Set up Notch to start saving bookmarks.</p>
+        <button id="btn-open-settings" class="btn btn-primary">Open Settings</button>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="view-loading" class="view">
+      <div class="loader"></div>
+    </div>
+
+    <!-- Save form -->
+    <div id="view-save" class="view hidden">
+      <header class="popup-header">
+        <span id="workspace-name" class="workspace"></span>
+        <button id="btn-settings" class="icon-btn" title="Settings">⚙</button>
+      </header>
+
+      <!-- Template picker -->
+      <div class="template-picker" id="template-picker"></div>
+
+      <div class="screenshot-preview hidden" id="screenshot-wrap">
+        <img id="screenshot-img" alt="Page screenshot" />
+        <label class="screenshot-toggle">
+          <input type="checkbox" id="include-screenshot" checked />
+          Include screenshot
+        </label>
+      </div>
+
+      <div class="form">
+        <div class="field">
+          <label for="field-title">Title</label>
+          <input id="field-title" type="text" placeholder="Page title" />
+        </div>
+        <div class="field">
+          <label for="field-url">URL</label>
+          <input id="field-url" type="text" readonly />
+        </div>
+        <div class="field" id="field-description-wrap">
+          <label for="field-description">Description</label>
+          <textarea id="field-description" rows="2" placeholder="Optional description"></textarea>
+        </div>
+        <div class="field" id="field-tags-wrap">
+          <label for="field-tags">Tags</label>
+          <input id="field-tags" type="text" placeholder="tag1, tag2" />
+        </div>
+      </div>
+
+      <div id="save-status" class="status hidden"></div>
+
+      <footer class="popup-footer">
+        <button id="btn-save" class="btn btn-primary">Save to Notion</button>
+      </footer>
+    </div>
+
+    <!-- Success -->
+    <div id="view-success" class="view hidden">
+      <div class="empty-state">
+        <div class="success-icon">✓</div>
+        <p id="success-msg">Saved to Notion!</p>
+        <a id="open-notion-link" href="#" target="_blank" class="btn btn-secondary">Open in Notion</a>
+      </div>
+    </div>
+
+  </div>
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

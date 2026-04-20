@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Notch · Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Notch</h1>
+    <p class="tagline">Save bookmarks to Notion, one notch at a time.</p>
+
+    <!-- Auth section -->
+    <section class="card" id="section-auth">
+      <h2>Notion Integration</h2>
+
+      <div id="auth-connected" class="hidden">
+        <div class="auth-row">
+          <span class="badge badge-green">Connected</span>
+          <span id="auth-workspace"></span>
+        </div>
+        <button id="btn-logout" class="btn btn-danger-outline">Disconnect</button>
+      </div>
+
+      <div id="auth-disconnected">
+        <ol class="setup-steps">
+          <li>Go to <a href="https://www.notion.so/my-integrations" target="_blank" rel="noopener">notion.so/my-integrations</a> and click <strong>"New integration"</strong>.</li>
+          <li>Pick a name (e.g. "My Bookmarks"), select your workspace, and submit.</li>
+          <li>Copy the <strong>Internal Integration Secret</strong> token and paste it below.</li>
+          <li>In Notion, open each database you want to save to → <strong>...</strong> → <strong>Connections</strong> → add your integration.</li>
+        </ol>
+
+        <div class="field">
+          <label for="token-input">Notion Integration Token</label>
+          <input id="token-input" type="password" placeholder="ntn_... or secret_..." autocomplete="off" />
+        </div>
+
+        <div id="token-error" class="status error hidden"></div>
+
+        <button id="btn-save-token" class="btn btn-primary">Connect</button>
+      </div>
+    </section>
+
+    <!-- Templates section -->
+    <section class="card hidden" id="section-templates">
+      <div class="section-header">
+        <h2>Templates</h2>
+        <button id="btn-new-template" class="btn btn-secondary">+ New template</button>
+      </div>
+      <p class="hint">A template bundles a database + field mapping + screenshot preference. Pick one in the popup for one-click saves.</p>
+
+      <div id="templates-list" class="templates-list"></div>
+      <div id="templates-empty" class="empty-state-inline hidden">
+        No templates yet. Create one to start saving bookmarks.
+      </div>
+    </section>
+
+    <!-- Template editor modal -->
+    <div id="template-editor" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="editor-title">New template</h2>
+          <button id="btn-close-editor" class="icon-btn">✕</button>
+        </div>
+
+        <div class="field">
+          <label for="tpl-name">Template name</label>
+          <input id="tpl-name" type="text" placeholder="e.g. Quick bookmark" />
+        </div>
+
+        <div class="field">
+          <div class="row-between">
+            <label for="tpl-db">Database</label>
+            <button id="btn-refresh-dbs" class="link-btn">Refresh</button>
+          </div>
+          <select id="tpl-db">
+            <option value="">— Select a database —</option>
+          </select>
+        </div>
+
+        <div id="mapping-section" class="hidden">
+          <h3>Field mapping</h3>
+          <p class="hint small">Map bookmark fields to properties in your selected database.</p>
+
+          <table class="mapping-table">
+            <thead>
+              <tr><th>Bookmark field</th><th>Notion property</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><label>Title <span class="required">*</span></label></td>
+                <td><select id="map-title" class="map-select"></select></td>
+              </tr>
+              <tr>
+                <td><label>URL <span class="required">*</span></label></td>
+                <td><select id="map-url" class="map-select"></select></td>
+              </tr>
+              <tr>
+                <td><label>Description</label></td>
+                <td><select id="map-description" class="map-select"></select></td>
+              </tr>
+              <tr>
+                <td><label>Tags</label></td>
+                <td><select id="map-tags" class="map-select"></select></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="field-row">
+            <label class="toggle-label">
+              <input type="checkbox" id="map-screenshot" checked />
+              Include screenshot by default
+            </label>
+          </div>
+        </div>
+
+        <div id="editor-error" class="status error hidden"></div>
+
+        <div class="modal-footer">
+          <button id="btn-cancel-template" class="btn btn-secondary">Cancel</button>
+          <button id="btn-save-template" class="btn btn-primary">Save template</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <script src="options.js" type="module"></script>
+</body>
+</html>

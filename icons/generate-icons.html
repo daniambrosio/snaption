@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<!-- Open this file in Chrome, right-click each canvas, "Save image as" the corresponding PNG -->
+<html>
+<body style="background:#fff;padding:20px;font-family:sans-serif;">
+<p>Right-click each icon → "Save image as" → save as icon16.png, icon48.png, icon128.png</p>
+<div style="display:flex;gap:20px;align-items:flex-end;margin-top:16px;">
+
+<div>
+  <p>icon16.png</p>
+  <canvas id="c16" width="16" height="16"></canvas>
+</div>
+<div>
+  <p>icon48.png</p>
+  <canvas id="c48" width="48" height="48"></canvas>
+</div>
+<div>
+  <p>icon128.png</p>
+  <canvas id="c128" width="128" height="128"></canvas>
+</div>
+
+</div>
+<script>
+function drawIcon(canvas) {
+  const ctx = canvas.getContext('2d');
+  const s = canvas.width;
+  const r = s * 0.15;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.roundRect(0, 0, s, s, r);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${s * 0.6}px serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('N', s / 2, s / 2 + s * 0.04);
+}
+['c16','c48','c128'].forEach(id => drawIcon(document.getElementById(id)));
+</script>
+</body>
+</html>
