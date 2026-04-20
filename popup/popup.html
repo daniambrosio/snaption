@@ -33,31 +33,19 @@
       <!-- Template picker -->
       <div class="template-picker" id="template-picker"></div>
 
+      <!-- Auto fields: title (editable) + URL (readonly). Additional editable rows
+           appear if the template has an 'auto' description-style rich_text field. -->
+      <div class="form" id="auto-form"></div>
+
+      <!-- Template preview (what the template sets silently) -->
+      <div class="template-preview hidden" id="template-preview"></div>
+
       <div class="screenshot-preview hidden" id="screenshot-wrap">
-        <img id="screenshot-img" alt="Page screenshot" />
         <label class="screenshot-toggle">
           <input type="checkbox" id="include-screenshot" checked />
           Include screenshot
         </label>
-      </div>
-
-      <div class="form">
-        <div class="field" id="field-title-wrap">
-          <label for="field-title" id="label-title">Title</label>
-          <input id="field-title" type="text" placeholder="Page title" />
-        </div>
-        <div class="field" id="field-url-wrap">
-          <label for="field-url" id="label-url">URL</label>
-          <input id="field-url" type="text" readonly />
-        </div>
-        <div class="field" id="field-description-wrap">
-          <label for="field-description" id="label-description">Description</label>
-          <textarea id="field-description" rows="2" placeholder="Optional note"></textarea>
-        </div>
-        <div class="field" id="field-tags-wrap">
-          <label for="field-tags" id="label-tags">Tags</label>
-          <input id="field-tags" type="text" placeholder="tag1, tag2" />
-        </div>
+        <img id="screenshot-img" alt="Page screenshot" />
       </div>
 
       <div id="save-status" class="status hidden"></div>

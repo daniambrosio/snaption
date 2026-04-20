@@ -1,31 +1,23 @@
 const msg = (type, data = {}) => chrome.runtime.sendMessage({ type, ...data });
 const $ = (id) => document.getElementById(id);
 
-// Field slots map to compatible Notion property types
-const COMPATIBLE_TYPES = {
-  title:       ['title'],
-  url:         ['url', 'rich_text'],
-  description: ['rich_text'],
-  tags:        ['multi_select', 'select'],
-};
-
-// Tokens for: which slots MUST have a property picked to save a template
-const REQUIRED_SLOTS = ['title', 'url'];
-
 let state = {
   databases: [],
   templates: [],
   defaultTemplateId: null,
-  editing: null,            // template object being edited (null = closed)
+  editing: null,            // template being edited (cloned from state.templates)
   currentSchema: null,      // schema of the database currently chosen in editor
+  relationOptionsCache: {}, // relationDbId → [{ id, title }]
 };
 
+// ─── Init ───────────────────────────────────────────────────────────────────
 async function init() {
   const authStatus = await msg('GET_AUTH_STATUS');
   renderAuthSection(authStatus);
 
   if (authStatus.authenticated) {
     await loadStorage();
+    await migrateOldTemplates();
     await ensureDatabasesLoaded();
     renderTemplates();
     $('section-templates').classList.remove('hidden');
@@ -37,6 +29,25 @@ async function loadStorage() {
   state.databases = stored.databases || [];
   state.templates = stored.templates || [];
   state.defaultTemplateId = stored.defaultTemplateId || null;
+}
+
+// Migrate templates from the old hardcoded-mapping model to the new properties model
+async function migrateOldTemplates() {
+  let changed = false;
+  for (const tpl of state.templates) {
+    if (tpl.properties) continue; // already new format
+    if (!tpl.mapping) continue;
+
+    const properties = {};
+    // Old mapping: { title: {name, type}, url: {name, type}, description: ..., tags: ... }
+    if (tpl.mapping.title)       properties[tpl.mapping.title.name]       = { mode: 'auto', autoField: 'title' };
+    if (tpl.mapping.url)         properties[tpl.mapping.url.name]         = { mode: 'auto', autoField: 'url' };
+    if (tpl.mapping.description) properties[tpl.mapping.description.name] = { mode: 'auto', autoField: 'description' };
+    tpl.properties = properties;
+    delete tpl.mapping;
+    changed = true;
+  }
+  if (changed) await chrome.storage.sync.set({ templates: state.templates });
 }
 
 async function ensureDatabasesLoaded() {
@@ -71,7 +82,9 @@ function renderTemplates() {
   }
   empty.classList.add('hidden');
 
-  list.innerHTML = state.templates.map(tpl => `
+  list.innerHTML = state.templates.map(tpl => {
+    const propCount = Object.values(tpl.properties || {}).filter(c => c.mode !== 'skip').length;
+    return `
     <div class="template-item ${tpl.id === state.defaultTemplateId ? 'is-default' : ''}" data-id="${tpl.id}">
       <div class="template-main">
         <div class="template-name">
@@ -80,6 +93,7 @@ function renderTemplates() {
         </div>
         <div class="template-meta">
           → ${escapeHtml(tpl.databaseTitle || 'Unknown database')}
+          · ${propCount} prop${propCount === 1 ? '' : 's'} configured
           ${tpl.includeScreenshot ? ' · 📸 screenshot' : ''}
         </div>
       </div>
@@ -91,14 +105,15 @@ function renderTemplates() {
         <button class="link-btn danger" data-action="delete" data-id="${tpl.id}">Delete</button>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 // ─── Template editor ────────────────────────────────────────────────────────
 function openEditor(template = null) {
   state.editing = template
     ? structuredClone(template)
-    : { id: crypto.randomUUID(), name: '', databaseId: '', mapping: {}, includeScreenshot: true };
+    : { id: crypto.randomUUID(), name: '', databaseId: '', properties: {}, includeScreenshot: true };
 
   $('editor-title').textContent = template ? 'Edit template' : 'New template';
   $('tpl-name').value = state.editing.name;
@@ -108,7 +123,7 @@ function openEditor(template = null) {
 
   if (state.editing.databaseId) {
     $('tpl-db').value = state.editing.databaseId;
-    loadSchemaAndRenderMapping(state.editing.databaseId);
+    loadSchemaAndRenderEditor(state.editing.databaseId);
   } else {
     $('mapping-section').classList.add('hidden');
   }
@@ -130,97 +145,305 @@ function renderDatabaseSelect() {
     ).join('');
 }
 
-async function loadSchemaAndRenderMapping(databaseId) {
+async function loadSchemaAndRenderEditor(databaseId) {
   if (!databaseId) {
     $('mapping-section').classList.add('hidden');
     return;
   }
+
+  $('properties-editor').innerHTML = '<div class="loading-small">Loading properties…</div>';
+  $('mapping-section').classList.remove('hidden');
 
   const res = await msg('GET_DB_SCHEMA', { databaseId });
   if (res.error) { showEditorError(res.error); return; }
 
   state.currentSchema = res;
   state.editing.databaseTitle = res.title;
-  renderMappingDropdowns(res.properties, state.editing.mapping);
-  $('mapping-section').classList.remove('hidden');
+
+  // Populate defaults for any property not yet configured in the template
+  for (const prop of res.properties) {
+    if (prop.readonly) continue;
+    if (!state.editing.properties[prop.name]) {
+      state.editing.properties[prop.name] = { mode: defaultModeFor(prop.type) };
+      if (state.editing.properties[prop.name].mode === 'auto') {
+        state.editing.properties[prop.name].autoField = defaultAutoFieldFor(prop.type);
+      }
+    }
+  }
+
+  renderPropertiesEditor(res.properties, state.editing.properties);
 }
 
-function renderMappingDropdowns(properties, currentMapping) {
-  for (const slot of ['title', 'url', 'description', 'tags']) {
-    const select = $(`map-${slot}`);
-    const row = select.closest('tr');
-    const compatible = properties.filter(p => COMPATIBLE_TYPES[slot].includes(p.type));
-    const required = REQUIRED_SLOTS.includes(slot);
+// Defaults: title auto-captures page title; all others start as "skip"
+function defaultModeFor(type) {
+  return type === 'title' ? 'auto' : 'skip';
+}
 
-    // Hide optional rows that have no compatible property in this DB
-    if (!required && compatible.length === 0) {
-      row.classList.add('hidden');
-      select.innerHTML = '';
-      continue;
-    }
-    row.classList.remove('hidden');
-
-    // Required rows with no compatible property: show a disabled explanatory option
-    if (required && compatible.length === 0) {
-      select.innerHTML = `<option value="">— no ${COMPATIBLE_TYPES[slot].join(' or ')} property in this database —</option>`;
-      select.disabled = true;
-      continue;
-    }
-    select.disabled = false;
-
-    select.innerHTML =
-      (required ? '' : '<option value="">— None —</option>') +
-      compatible.map(p =>
-        `<option value="${escapeHtml(p.name)}" data-type="${p.type}">${escapeHtml(p.name)} (${p.type})</option>`
-      ).join('');
-
-    const saved = currentMapping[slot];
-    if (saved && compatible.some(p => p.name === saved.name)) {
-      select.value = saved.name;
-    } else if (slot === 'title' && compatible.length === 1) {
-      select.value = compatible[0].name;
-    } else if (slot === 'url') {
-      const preferred = compatible.find(p => /^url$/i.test(p.name));
-      if (preferred) select.value = preferred.name;
-    }
+function defaultAutoFieldFor(type) {
+  switch (type) {
+    case 'title':     return 'title';
+    case 'url':       return 'url';
+    case 'rich_text': return 'description';
+    case 'date':      return 'now';
+    default:          return null;
   }
 }
 
-function readEditorState() {
-  const mapping = {};
-  for (const slot of ['title', 'url', 'description', 'tags']) {
-    const select = $(`map-${slot}`);
-    const name = select.value;
-    if (!name) continue;
-    const opt = select.options[select.selectedIndex];
-    mapping[slot] = { name, type: opt.dataset.type };
+function autoOptionFor(type) {
+  switch (type) {
+    case 'title':     return { field: 'title',       label: 'Auto — page title' };
+    case 'url':       return { field: 'url',         label: 'Auto — page URL' };
+    case 'rich_text': return { field: 'description', label: 'Auto — page description' };
+    case 'date':      return { field: 'now',         label: 'Auto — today' };
+    default:          return null;
+  }
+}
+
+function typeIcon(type) {
+  const map = {
+    title: 'T', rich_text: '¶', url: '🔗', email: '✉', phone_number: '☎',
+    number: '#', checkbox: '☐', date: '📅', select: '◉', multi_select: '⦿',
+    status: '◐', relation: '⇄', people: '👥', files: '📎',
+  };
+  return map[type] || '•';
+}
+
+function renderPropertiesEditor(schemaProps, config) {
+  const container = $('properties-editor');
+  const visible = schemaProps.filter(p => !p.readonly);
+
+  if (!visible.length) {
+    container.innerHTML = '<p class="hint">This database has no writable properties.</p>';
+    return;
   }
 
-  return {
+  container.innerHTML = visible.map(prop =>
+    renderPropertyRow(prop, config[prop.name] || { mode: defaultModeFor(prop.type) })
+  ).join('');
+
+  // Wire up events for each row
+  container.querySelectorAll('.property-row').forEach(row => {
+    const name = row.dataset.name;
+    const sourceSelect = row.querySelector('.source-select');
+
+    sourceSelect.addEventListener('change', () => onSourceChange(name));
+
+    // If this is a relation with mode 'fixed', lazy-load its options
+    const prop = visible.find(p => p.name === name);
+    const currentMode = config[name]?.mode;
+    if (prop.type === 'relation' && currentMode === 'fixed') {
+      hydrateRelationOptions(row, prop);
+    }
+
+    wireValueEditor(row, prop);
+  });
+}
+
+function renderPropertyRow(prop, config) {
+  const autoOpt = autoOptionFor(prop.type);
+  const mode = config.mode || 'skip';
+  const typeLabel = prop.type === 'relation' ? 'relation' : prop.type;
+
+  return `
+    <div class="property-row" data-name="${escapeHtml(prop.name)}" data-type="${prop.type}">
+      <div class="property-header">
+        <span class="property-icon" title="${prop.type}">${typeIcon(prop.type)}</span>
+        <span class="property-name">${escapeHtml(prop.name)}</span>
+        <span class="property-type-label">${typeLabel}</span>
+      </div>
+      <div class="property-controls">
+        <select class="source-select">
+          <option value="skip" ${mode === 'skip' ? 'selected' : ''}>Leave empty</option>
+          ${autoOpt ? `<option value="auto" ${mode === 'auto' ? 'selected' : ''}>${autoOpt.label}</option>` : ''}
+          <option value="fixed" ${mode === 'fixed' ? 'selected' : ''}>Fixed value</option>
+        </select>
+        <div class="value-editor ${mode === 'fixed' ? '' : 'hidden'}">
+          ${renderValueEditor(prop, config)}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderValueEditor(prop, config) {
+  const v = config.value;
+
+  switch (prop.type) {
+    case 'select':
+    case 'status':
+      return `<select class="fixed-value">
+        <option value="">— Pick one —</option>
+        ${(prop.options || []).map(o =>
+          `<option value="${escapeHtml(o.name)}" ${o.name === v ? 'selected' : ''}>${escapeHtml(o.name)}</option>`
+        ).join('')}
+      </select>`;
+
+    case 'multi_select': {
+      const selected = Array.isArray(v) ? v : (v ? [v] : []);
+      return `<div class="chip-picker">
+        ${(prop.options || []).map(o =>
+          `<label class="chip ${selected.includes(o.name) ? 'selected' : ''}">
+             <input type="checkbox" value="${escapeHtml(o.name)}" ${selected.includes(o.name) ? 'checked' : ''} />
+             ${escapeHtml(o.name)}
+           </label>`
+        ).join('')}
+      </div>`;
+    }
+
+    case 'relation':
+      return `<div class="relation-picker" data-relation-db="${prop.relationDatabaseId || ''}">
+        <div class="loading-small">Loading options…</div>
+      </div>`;
+
+    case 'checkbox':
+      return `<label class="toggle-label">
+        <input type="checkbox" class="fixed-value" ${v ? 'checked' : ''} /> Checked
+      </label>`;
+
+    case 'date':
+      return `<input type="date" class="fixed-value" value="${escapeHtml(v || '')}" />`;
+
+    case 'number':
+      return `<input type="number" class="fixed-value" value="${v ?? ''}" placeholder="e.g. 42" />`;
+
+    default: // title, rich_text, url, email, phone_number, and others
+      return `<input type="text" class="fixed-value" value="${escapeHtml(v ?? '')}" placeholder="Value" />`;
+  }
+}
+
+function onSourceChange(propName) {
+  const row = document.querySelector(`.property-row[data-name="${cssEscape(propName)}"]`);
+  if (!row) return;
+
+  const sourceSelect = row.querySelector('.source-select');
+  const mode = sourceSelect.value;
+  const prop = state.currentSchema.properties.find(p => p.name === propName);
+
+  const editor = row.querySelector('.value-editor');
+  editor.classList.toggle('hidden', mode !== 'fixed');
+
+  state.editing.properties[propName] = state.editing.properties[propName] || {};
+  state.editing.properties[propName].mode = mode;
+
+  if (mode === 'auto') {
+    state.editing.properties[propName].autoField = defaultAutoFieldFor(prop.type);
+  }
+
+  if (mode === 'fixed' && prop.type === 'relation') {
+    hydrateRelationOptions(row, prop);
+  }
+}
+
+async function hydrateRelationOptions(row, prop) {
+  const picker = row.querySelector('.relation-picker');
+  if (!picker) return;
+
+  const dbId = prop.relationDatabaseId;
+  if (!dbId) {
+    picker.innerHTML = '<div class="hint small">Could not determine the related database.</div>';
+    return;
+  }
+
+  // Use cache if available
+  let options = state.relationOptionsCache[dbId];
+  if (!options) {
+    const res = await msg('GET_RELATION_OPTIONS', { databaseId: dbId });
+    if (res.error) {
+      picker.innerHTML = `<div class="hint small error">Failed to load: ${escapeHtml(res.error)}</div>`;
+      return;
+    }
+    options = res;
+    state.relationOptionsCache[dbId] = options;
+  }
+
+  // Also allow multi-selecting relations (relation type is always multi in Notion)
+  const currentValue = state.editing.properties[prop.name]?.value || [];
+  const selected = Array.isArray(currentValue) ? currentValue : [currentValue];
+
+  if (!options.length) {
+    picker.innerHTML = '<div class="hint small">The related database is empty or not shared with this integration.</div>';
+    return;
+  }
+
+  picker.innerHTML = `
+    <input type="text" class="relation-filter" placeholder="Filter…" />
+    <div class="relation-options">
+      ${options.map(o => `
+        <label class="chip ${selected.includes(o.id) ? 'selected' : ''}">
+          <input type="checkbox" value="${o.id}" ${selected.includes(o.id) ? 'checked' : ''} />
+          ${escapeHtml(o.title)}
+        </label>
+      `).join('')}
+    </div>
+  `;
+}
+
+function wireValueEditor(row, prop) {
+  const propName = prop.name;
+
+  // Text, date, number, url, email, phone, fixed-value single input
+  row.querySelectorAll('.value-editor input.fixed-value, .value-editor select.fixed-value').forEach(el => {
+    el.addEventListener('change', () => {
+      const cfg = state.editing.properties[propName];
+      if (el.type === 'checkbox') cfg.value = el.checked;
+      else cfg.value = el.value;
+    });
+    el.addEventListener('input', () => {
+      const cfg = state.editing.properties[propName];
+      if (el.type === 'checkbox') cfg.value = el.checked;
+      else cfg.value = el.value;
+    });
+  });
+
+  // Multi-select chip pickers
+  row.querySelectorAll('.chip-picker input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const picked = [...row.querySelectorAll('.chip-picker input[type="checkbox"]:checked')].map(i => i.value);
+      state.editing.properties[propName].value = picked;
+      cb.closest('.chip').classList.toggle('selected', cb.checked);
+    });
+  });
+
+  // Relation picker (delegated since it hydrates async)
+  row.addEventListener('change', (e) => {
+    if (!e.target.matches('.relation-options input[type="checkbox"]')) return;
+    const picked = [...row.querySelectorAll('.relation-options input[type="checkbox"]:checked')].map(i => i.value);
+    state.editing.properties[propName].value = picked;
+    e.target.closest('.chip').classList.toggle('selected', e.target.checked);
+  });
+
+  // Relation filter
+  row.addEventListener('input', (e) => {
+    if (!e.target.matches('.relation-filter')) return;
+    const q = e.target.value.toLowerCase();
+    row.querySelectorAll('.relation-options .chip').forEach(chip => {
+      const label = chip.textContent.trim().toLowerCase();
+      chip.classList.toggle('hidden', q && !label.includes(q));
+    });
+  });
+}
+
+async function saveTemplate() {
+  const tpl = {
     id: state.editing.id,
     name: $('tpl-name').value.trim(),
     databaseId: $('tpl-db').value,
     databaseTitle: state.editing.databaseTitle,
-    mapping,
+    properties: state.editing.properties,
     includeScreenshot: $('map-screenshot').checked,
   };
-}
-
-async function saveTemplate() {
-  const tpl = readEditorState();
 
   if (!tpl.name) return showEditorError('Give the template a name.');
   if (!tpl.databaseId) return showEditorError('Pick a database.');
-  for (const slot of REQUIRED_SLOTS) {
-    if (!tpl.mapping[slot]) return showEditorError(`Pick a property for "${slot}".`);
-  }
 
-  // Upsert
+  // Ensure at least one property configured beyond "skip"
+  const active = Object.values(tpl.properties || {}).some(c => c.mode !== 'skip');
+  if (!active) return showEditorError('Configure at least one property.');
+
   const idx = state.templates.findIndex(t => t.id === tpl.id);
   if (idx >= 0) state.templates[idx] = tpl;
   else state.templates.push(tpl);
 
-  // First template becomes default automatically
   if (!state.defaultTemplateId) state.defaultTemplateId = tpl.id;
 
   await chrome.storage.sync.set({
@@ -259,8 +482,10 @@ function showEditorError(text) {
 function hideEditorError() { $('editor-error').classList.add('hidden'); }
 
 function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+function cssEscape(s) { return (CSS?.escape?.(s)) ?? String(s).replace(/"/g, '\\"'); }
 
 // ─── Token flow ──────────────────────────────────────────────────────────────
 $('btn-save-token').addEventListener('click', async () => {
@@ -317,8 +542,8 @@ $('btn-save-template').addEventListener('click', saveTemplate);
 
 $('tpl-db').addEventListener('change', async (e) => {
   state.editing.databaseId = e.target.value;
-  state.editing.mapping = {}; // reset mapping when database changes
-  await loadSchemaAndRenderMapping(e.target.value);
+  state.editing.properties = {}; // reset when database changes
+  await loadSchemaAndRenderEditor(e.target.value);
 });
 
 $('btn-refresh-dbs').addEventListener('click', async (e) => {
@@ -330,10 +555,9 @@ $('btn-refresh-dbs').addEventListener('click', async (e) => {
   const selectedId = $('tpl-db').value;
 
   if (selectedId) {
-    // Refresh the schema of the currently-selected database
-    await loadSchemaAndRenderMapping(selectedId);
+    state.relationOptionsCache = {}; // invalidate so related DBs reload too
+    await loadSchemaAndRenderEditor(selectedId);
   } else {
-    // Nothing selected → refresh the list of available databases
     await chrome.storage.sync.remove('databases');
     state.databases = [];
     await ensureDatabasesLoaded();
@@ -341,6 +565,14 @@ $('btn-refresh-dbs').addEventListener('click', async (e) => {
   }
 
   link.textContent = originalText;
+});
+
+$('tpl-name').addEventListener('input', (e) => {
+  if (state.editing) state.editing.name = e.target.value;
+});
+
+$('map-screenshot').addEventListener('change', (e) => {
+  if (state.editing) state.editing.includeScreenshot = e.target.checked;
 });
 
 init();

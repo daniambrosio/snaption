@@ -9,13 +9,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 async function handleMessage(msg) {
   switch (msg.type) {
-    case 'GET_AUTH_STATUS':  return getAuthStatus();
-    case 'SAVE_TOKEN':       return saveToken(msg.token);
-    case 'CLEAR_TOKEN':      return clearToken();
-    case 'GET_TAB_INFO':     return getTabInfo(msg.tabId);
-    case 'GET_DATABASES':    return getDatabases();
-    case 'GET_DB_SCHEMA':    return getDatabaseSchema(msg.databaseId);
-    case 'SAVE_BOOKMARK':    return saveBookmark(msg.payload);
+    case 'GET_AUTH_STATUS':        return getAuthStatus();
+    case 'SAVE_TOKEN':             return saveToken(msg.token);
+    case 'CLEAR_TOKEN':            return clearToken();
+    case 'GET_TAB_INFO':           return getTabInfo(msg.tabId);
+    case 'GET_DATABASES':          return getDatabases();
+    case 'GET_DB_SCHEMA':          return getDatabaseSchema(msg.databaseId);
+    case 'GET_RELATION_OPTIONS':   return getRelationOptions(msg);
+    case 'SAVE_BOOKMARK':          return saveBookmark(msg.payload);
     default: throw new Error(`Unknown message type: ${msg.type}`);
   }
 }
@@ -144,11 +145,46 @@ async function getDatabases() {
 
 async function getDatabaseSchema(databaseId) {
   const db = await notionFetch(`/databases/${databaseId}`);
-  const properties = Object.entries(db.properties).map(([name, prop]) => ({
-    name,
-    type: prop.type,
-  }));
-  return { id: databaseId, title: db.title?.[0]?.plain_text || 'Untitled', properties };
+  const properties = Object.entries(db.properties).map(([name, prop]) => {
+    const base = { name, type: prop.type, id: prop.id };
+    switch (prop.type) {
+      case 'select':       return { ...base, options: prop.select.options };
+      case 'multi_select': return { ...base, options: prop.multi_select.options };
+      case 'status':       return { ...base, options: prop.status.options };
+      case 'relation':     return { ...base, relationDatabaseId: prop.relation.database_id };
+      case 'formula':
+      case 'rollup':
+      case 'created_time':
+      case 'last_edited_time':
+      case 'created_by':
+      case 'last_edited_by':
+      case 'unique_id':
+      case 'button':
+        return { ...base, readonly: true };
+      default: return base;
+    }
+  });
+  return {
+    id: databaseId,
+    title: db.title?.[0]?.plain_text || 'Untitled',
+    properties,
+  };
+}
+
+// List pages from a related database — used to populate Relation selectors
+async function getRelationOptions({ databaseId, query = '' }) {
+  const res = await notionFetch(`/databases/${databaseId}/query`, {
+    method: 'POST',
+    body: JSON.stringify({ page_size: 100 }),
+  });
+  const options = res.results.map(page => {
+    const titleProp = Object.values(page.properties || {}).find(p => p.type === 'title');
+    const title = titleProp?.title?.[0]?.plain_text || 'Untitled';
+    return { id: page.id, title };
+  });
+  if (!query) return options;
+  const q = query.toLowerCase();
+  return options.filter(o => o.title.toLowerCase().includes(q));
 }
 
 // ─── Screenshot upload to Notion ─────────────────────────────────────────────
@@ -217,8 +253,10 @@ async function uploadScreenshot(base64DataUrl) {
 }
 
 // ─── Save bookmark ────────────────────────────────────────────────────────────
-async function saveBookmark({ databaseId, fields, screenshot, fieldMapping }) {
-  const properties = buildProperties(fields, fieldMapping);
+async function saveBookmark({ databaseId, template, tabInfo, screenshot, overrides = {} }) {
+  // Always fetch fresh schema at save time — catches property renames/removals
+  const schema = await getDatabaseSchema(databaseId);
+  const properties = buildPropertiesFromTemplate(template, tabInfo, schema, overrides);
 
   const page = await notionFetch('/pages', {
     method: 'POST',
@@ -228,8 +266,7 @@ async function saveBookmark({ databaseId, fields, screenshot, fieldMapping }) {
     }),
   });
 
-  // Screenshot is best-effort: if it fails, the page is still saved.
-  // We return a warning field instead of failing the whole save.
+  // Screenshot is best-effort
   let screenshotWarning = null;
   if (screenshot) {
     try {
@@ -253,22 +290,39 @@ async function saveBookmark({ databaseId, fields, screenshot, fieldMapping }) {
   return { success: true, pageId: page.id, pageUrl: page.url, screenshotWarning };
 }
 
-function buildProperties(fields, mapping) {
+// Walk each property the template configures; resolve its value from the right source
+function buildPropertiesFromTemplate(template, tabInfo, schema, overrides) {
   const props = {};
+  const config = template.properties || {};
 
-  // Each mapping slot is { name, type }
-  // Each field is emitted according to the target property's actual Notion type
-  const emit = (slot, value) => {
-    if (!slot?.name || value === undefined || value === null || value === '') return;
-    props[slot.name] = formatValue(slot.type, value);
-  };
+  for (const [propName, propConfig] of Object.entries(config)) {
+    const schemaProp = schema.properties.find(p => p.name === propName);
+    if (!schemaProp || schemaProp.readonly) continue;
 
-  emit(mapping.title, fields.title);
-  emit(mapping.url, fields.url);
-  emit(mapping.description, fields.description);
-  if (fields.tags?.length) emit(mapping.tags, fields.tags);
+    // Overrides (from popup edits) win over template defaults
+    const effective = overrides[propName] ?? resolveTemplateValue(propConfig, tabInfo);
+    if (effective === null || effective === undefined || effective === '') continue;
+    if (Array.isArray(effective) && effective.length === 0) continue;
+
+    props[propName] = formatValue(schemaProp.type, effective);
+  }
 
   return props;
+}
+
+function resolveTemplateValue(config, tabInfo) {
+  if (!config || config.mode === 'skip') return null;
+  if (config.mode === 'fixed') return config.value;
+  if (config.mode === 'auto') {
+    switch (config.autoField) {
+      case 'title':       return tabInfo?.title ?? null;
+      case 'url':         return tabInfo?.url ?? null;
+      case 'description': return tabInfo?.description || null;
+      case 'now':         return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+      default:            return null;
+    }
+  }
+  return null;
 }
 
 function formatValue(type, value) {
@@ -281,18 +335,23 @@ function formatValue(type, value) {
       return { url: String(value) };
     case 'email':
       return { email: String(value) };
+    case 'phone_number':
+      return { phone_number: String(value) };
     case 'multi_select':
       return { multi_select: (Array.isArray(value) ? value : [value]).map(name => ({ name: String(name) })) };
     case 'select':
       return { select: { name: String(Array.isArray(value) ? value[0] : value) } };
+    case 'status':
+      return { status: { name: String(Array.isArray(value) ? value[0] : value) } };
     case 'checkbox':
       return { checkbox: !!value };
     case 'number':
       return { number: Number(value) };
     case 'date':
       return { date: { start: String(value) } };
+    case 'relation':
+      return { relation: (Array.isArray(value) ? value : [value]).map(id => ({ id: String(id) })) };
     default:
-      // Fallback: stringify into rich_text if type is unexpected
       return { rich_text: [{ text: { content: Array.isArray(value) ? value.join(', ') : String(value) } }] };
   }
 }

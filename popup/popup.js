@@ -5,6 +5,7 @@ let state = {
   tabInfo: null,
   templates: [],
   selectedTemplateId: null,
+  overrides: {}, // { [propName]: value } — user edits to auto fields
 };
 
 async function init() {
@@ -27,7 +28,6 @@ async function init() {
   }
 
   state.selectedTemplateId = stored.defaultTemplateId || state.templates[0].id;
-
   $('workspace-name').textContent = authStatus.workspace || 'Notion';
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -35,7 +35,6 @@ async function init() {
 
   renderTemplatePicker();
   applyTemplate();
-  populateForm();
   showView('save');
 }
 
@@ -50,39 +49,81 @@ function renderTemplatePicker() {
       ${escapeHtml(tpl.name)}
     </button>
   `).join('');
-
   $('template-picker').classList.remove('hidden');
 }
 
+function currentTemplate() {
+  return state.templates.find(t => t.id === state.selectedTemplateId);
+}
+
+// Render editable inputs for 'auto' properties (user can override the captured value)
+// and a compact preview of 'fixed' properties (silently applied)
 function applyTemplate() {
   const tpl = currentTemplate();
   if (!tpl) return;
 
-  // Show/hide each field based on whether the template maps it,
-  // AND relabel using the actual Notion property name
-  for (const slot of ['title', 'url', 'description', 'tags']) {
-    const wrap = $(`field-${slot}-wrap`);
-    const label = $(`label-${slot}`);
-    const mapped = tpl.mapping[slot];
+  state.overrides = {};
 
-    if (!mapped) {
-      wrap.classList.add('hidden');
-      continue;
-    }
-    wrap.classList.remove('hidden');
-    label.textContent = mapped.name;
+  const autoForm = $('auto-form');
+  const preview = $('template-preview');
+  autoForm.innerHTML = '';
+  preview.innerHTML = '';
+
+  const autoEntries = [];
+  const fixedEntries = [];
+
+  for (const [propName, cfg] of Object.entries(tpl.properties || {})) {
+    if (cfg.mode === 'auto') autoEntries.push([propName, cfg]);
+    else if (cfg.mode === 'fixed') fixedEntries.push([propName, cfg]);
+  }
+
+  // Editable auto fields
+  for (const [propName, cfg] of autoEntries) {
+    const value = autoValueFromTab(cfg.autoField, state.tabInfo);
+    const readonly = cfg.autoField === 'url';
+    const multiline = cfg.autoField === 'description';
+
+    autoForm.insertAdjacentHTML('beforeend', `
+      <div class="field" data-prop="${escapeHtml(propName)}">
+        <label>${escapeHtml(propName)}</label>
+        ${multiline
+          ? `<textarea rows="2" data-override="${escapeHtml(propName)}">${escapeHtml(value || '')}</textarea>`
+          : `<input type="text" ${readonly ? 'readonly' : ''} value="${escapeHtml(value || '')}" data-override="${escapeHtml(propName)}" />`
+        }
+      </div>
+    `);
+  }
+
+  // Wire up overrides
+  autoForm.querySelectorAll('[data-override]').forEach(el => {
+    el.addEventListener('input', () => {
+      state.overrides[el.dataset.override] = el.value;
+    });
+    // Seed the override with the current value so save-time uses the user's edits
+    state.overrides[el.dataset.override] = el.value;
+  });
+
+  // Fixed value preview (non-editable summary)
+  if (fixedEntries.length) {
+    preview.classList.remove('hidden');
+    preview.innerHTML = `
+      <div class="preview-label">This template also sets:</div>
+      <div class="preview-list">
+        ${fixedEntries.map(([name, cfg]) => `
+          <div class="preview-item">
+            <span class="preview-name">${escapeHtml(name)}</span>
+            <span class="preview-value">${formatPreviewValue(cfg.value)}</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  } else {
+    preview.classList.add('hidden');
   }
 
   $('include-screenshot').checked = tpl.includeScreenshot !== false;
-}
 
-function populateForm() {
-  $('field-title').value = state.tabInfo.title || '';
-  $('field-url').value = state.tabInfo.url || '';
-  $('field-description').value = state.tabInfo.description || '';
-  $('field-tags').value = '';
-
-  if (state.tabInfo.screenshot) {
+  if (state.tabInfo?.screenshot) {
     $('screenshot-img').src = state.tabInfo.screenshot;
     $('screenshot-wrap').classList.remove('hidden');
   } else {
@@ -90,8 +131,26 @@ function populateForm() {
   }
 }
 
-function currentTemplate() {
-  return state.templates.find(t => t.id === state.selectedTemplateId);
+function autoValueFromTab(field, tabInfo) {
+  switch (field) {
+    case 'title':       return tabInfo?.title || '';
+    case 'url':         return tabInfo?.url || '';
+    case 'description': return tabInfo?.description || '';
+    case 'now':         return new Date().toISOString().slice(0, 10);
+    default:            return '';
+  }
+}
+
+function formatPreviewValue(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  if (Array.isArray(v)) {
+    if (v.length === 0) return '—';
+    if (v.length === 1 && v[0].length === 36 && v[0].includes('-')) return '(1 relation)';
+    if (v.every(x => typeof x === 'string' && x.length === 36 && x.includes('-'))) return `(${v.length} relations)`;
+    return v.map(escapeHtml).join(', ');
+  }
+  if (typeof v === 'boolean') return v ? '✓' : '☐';
+  return escapeHtml(String(v));
 }
 
 async function handleSave() {
@@ -103,18 +162,14 @@ async function handleSave() {
   const tpl = currentTemplate();
   if (!tpl) { showStatus('No template selected', 'error'); return; }
 
-  const includeScreenshot = $('include-screenshot').checked && state.tabInfo.screenshot;
+  const includeScreenshot = $('include-screenshot').checked && state.tabInfo?.screenshot;
 
   const payload = {
     databaseId: tpl.databaseId,
-    fieldMapping: tpl.mapping,
+    template: tpl,
+    tabInfo: state.tabInfo,
+    overrides: state.overrides,
     screenshot: includeScreenshot ? state.tabInfo.screenshot : null,
-    fields: {
-      title: $('field-title').value.trim(),
-      url: $('field-url').value.trim(),
-      description: $('field-description').value.trim(),
-      tags: $('field-tags').value.split(',').map(t => t.trim()).filter(Boolean),
-    },
   };
 
   const result = await msg('SAVE_BOOKMARK', { payload });
@@ -149,6 +204,7 @@ function showStatus(text, type) {
 function hideStatus() { $('save-status').classList.add('hidden'); }
 
 function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 

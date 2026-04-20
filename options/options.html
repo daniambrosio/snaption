@@ -80,37 +80,14 @@
         </div>
 
         <div id="mapping-section" class="hidden">
-          <h3>Field mapping</h3>
-          <p class="hint small">Pick which Notion property stores each piece of bookmark data. Only compatible properties are listed; fields with no match are hidden.</p>
-
-          <table class="mapping-table">
-            <thead>
-              <tr><th>Snaption field</th><th>Notion property in this database</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><label>Title <span class="required">*</span></label></td>
-                <td><select id="map-title" class="map-select"></select></td>
-              </tr>
-              <tr>
-                <td><label>URL <span class="required">*</span></label></td>
-                <td><select id="map-url" class="map-select"></select></td>
-              </tr>
-              <tr>
-                <td><label>Description</label></td>
-                <td><select id="map-description" class="map-select"></select></td>
-              </tr>
-              <tr>
-                <td><label>Tags</label></td>
-                <td><select id="map-tags" class="map-select"></select></td>
-              </tr>
-            </tbody>
-          </table>
+          <h3>Database properties</h3>
+          <p class="hint small">Every property in this database is listed below. Configure what value each should have when a bookmark is saved. Leave a property alone to use the database default.</p>
+          <div id="properties-editor"></div>
 
           <div class="field-row">
             <label class="toggle-label">
               <input type="checkbox" id="map-screenshot" checked />
-              Include screenshot by default
+              Include screenshot by default (appended as an image block)
             </label>
           </div>
         </div>

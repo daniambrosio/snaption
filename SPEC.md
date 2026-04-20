@@ -75,20 +75,48 @@ All persistent state lives in `chrome.storage.sync`:
 ```js
 {
   id: "<uuid>",
-  name: "Quick bookmark",
+  name: "Tarefa Meli",
   databaseId: "<notion-db-id>",
-  databaseTitle: "Bookmarks",        // cached for display without another API call
-  mapping: {
-    title:       { name: "Name",        type: "title"        },
-    url:         { name: "URL",         type: "url"          },
-    description: { name: "Notes",       type: "rich_text"    },  // optional
-    tags:        { name: "Tags",        type: "multi_select" },  // optional
+  databaseTitle: "DB GTD Tasks",     // cached for display without another API call
+  properties: {
+    // Keyed by the actual Notion property name in the database
+    "Task":   { mode: "auto",  autoField: "title"       },  // captured from page
+    "URL":    { mode: "auto",  autoField: "url"         },  // captured from page
+    "Notes":  { mode: "auto",  autoField: "description" },  // captured from og:description
+    "Created":{ mode: "auto",  autoField: "now"         },  // today's date (YYYY-MM-DD)
+    "Area":   { mode: "fixed", value: ["<page-id>"]     },  // relation — IDs of target pages
+    "Status": { mode: "fixed", value: "To Do"           },  // select — option name
+    "Tags":   { mode: "fixed", value: ["inbox"]         },  // multi_select — option names
+    "Done":   { mode: "fixed", value: false             },  // checkbox
+    // Properties with mode: "skip" (or omitted entirely) are left at the database default
   },
   includeScreenshot: true,
 }
 ```
 
-The four `mapping` slots are fixed (`title`, `url`, `description`, `tags`) — these are Snaption's *bookmark fields*. The `name` is the Notion property name; the `type` is its Notion property type. Required slots: `title`, `url`. Optional: `description`, `tags`.
+**The `properties` object is keyed by the Notion property name** — NOT by Snaption-defined slots. This lets users target any database, with any schema, and pre-set values for Relation, Select, Multi-select, Date, Checkbox, etc.
+
+**`mode` values:**
+- `"skip"` — leave this property unset (database default applies)
+- `"auto"` — capture from the browsed page. `autoField` picks which captured value to use:
+  - `"title"` — page's `<title>` or `og:title`
+  - `"url"` — current URL
+  - `"description"` — `og:description` or `<meta name="description">`
+  - `"now"` — today's date as `YYYY-MM-DD`
+- `"fixed"` — use `value` verbatim (type determined by the property's Notion type)
+
+**`value` shape depends on the property's Notion type:**
+| Notion type | value shape |
+|-------------|-------------|
+| `title`, `rich_text`, `url`, `email`, `phone_number` | string |
+| `number` | number |
+| `checkbox` | boolean |
+| `date` | `"YYYY-MM-DD"` string |
+| `select`, `status` | option name (string) |
+| `multi_select` | array of option names (string[]) |
+| `relation` | array of Notion page IDs (string[]) |
+
+Read-only properties (`formula`, `rollup`, `created_time`, `last_edited_time`, `created_by`, `last_edited_by`, `unique_id`, `button`) are flagged `readonly` in the schema and hidden from the editor entirely.
 
 ---
 
@@ -104,18 +132,28 @@ The four `mapping` slots are fixed (`title`, `url`, `description`, `tags`) — t
       - chrome.tabs.get(tabId)                   (URL, title)
       - chrome.scripting.executeScript(…)        (og:title, og:description)
       - chrome.tabs.captureVisibleTab(…)         (PNG data URL)
-  ↓ populate form, render template picker pills
+  ↓ applyTemplate():
+      - For each 'auto' property → render an editable input prefilled
+        with the captured value (user can override)
+      - For each 'fixed' property → render a compact preview row
+        (applied silently at save time)
 [user clicks Save]
-  ↓ SAVE_BOOKMARK { databaseId, fieldMapping, screenshot, fields }
+  ↓ SAVE_BOOKMARK { databaseId, template, tabInfo, overrides, screenshot }
   ↓ service-worker:
-      - buildProperties(fields, mapping)         Type-aware emission
-      - POST /v1/pages                           Creates the page
+      - GET /v1/databases/{id}                     Fresh schema (catches renames)
+      - buildPropertiesFromTemplate(template, tabInfo, schema, overrides)
+          For each configured property:
+            overrides[propName] ?? resolveTemplateValue(cfg, tabInfo)
+          Emit via formatValue(schemaProp.type, value)
+      - POST /v1/pages                             Create the page
       - if screenshot:
-          - POST /v1/file_uploads                Create upload slot
-          - POST /v1/file_uploads/{id}/send      Send binary as multipart
-          - PATCH /v1/blocks/{pageId}/children   Append image block
+          - POST /v1/file_uploads                  Create upload slot
+          - POST /v1/file_uploads/{id}/send        Send binary as multipart
+          - PATCH /v1/blocks/{pageId}/children     Append image block
   ↓ success screen with "Open in Notion" link
 ```
+
+**Why a fresh schema at save time:** If a user renames/deletes a property in Notion between template creation and save, we don't want to fail silently. The schema fetch lets us skip properties that no longer exist and emit the correct JSON shape based on the *current* property type (e.g. a user could convert a `select` to `multi_select`).
 
 Screenshot upload is **best-effort**: if it fails, the page is still saved and the success screen shows `"Saved, but screenshot failed: <reason>"`. We never lose the page over a screenshot.
 
@@ -212,26 +250,35 @@ Injected via `chrome.scripting.executeScript` at popup open time (not via `conte
 
 ## 8. UI behaviors worth knowing
 
-### 8.1 Popup: label-as-property-name
+### 8.1 Popup: auto vs fixed vs preview
 
-The popup relabels each bookmark-field input using the *actual* Notion property name from the template's mapping. If the user mapped `description → "Notes"`, the popup label reads "Notes", not "Description". Slots not mapped by the template are hidden entirely.
+The popup treats the template's configured properties in three buckets:
 
-This avoids the UX confusion where a hardcoded "Description" label makes users think the extension is assuming a property they don't have.
+- **`auto` properties** render as editable inputs prefilled with the captured page value. The user can edit these before saving — their edits flow to `SAVE_BOOKMARK.overrides` and take precedence over the auto value.
+- **`fixed` properties** render in a compact "This template also sets:" preview at the bottom (name → value). Not editable in the popup — edit the template in Options to change them.
+- **`skip`-mode or omitted properties** are invisible — the database's default applies.
 
-### 8.2 Options: schema-aware mapping dropdowns
+Each field's label is the actual Notion property name from the template (e.g. "Task" not "Title", "Notes" not "Description"). There are no hardcoded Snaption field labels anywhere in the popup.
 
-When a user picks a database in the template editor, the schema is fetched and each mapping slot's dropdown is populated with ONLY properties whose Notion type is compatible:
+### 8.2 Options: property-centric template editor
 
-```js
-const COMPATIBLE_TYPES = {
-  title:       ['title'],                   // Exactly one per DB
-  url:         ['url', 'rich_text'],        // URL property preferred, rich_text fallback
-  description: ['rich_text'],
-  tags:        ['multi_select', 'select'],
-};
-```
+The template editor does NOT ask "which property maps to which Snaption slot?" It iterates over the database's actual writable properties and lets the user configure each one independently:
 
-Optional rows with no compatible property in the chosen DB are **hidden entirely** (not shown with an empty dropdown). Required rows with no compatible property show a disabled explanatory option: "— no title property in this database —".
+- Each property row shows: name, type icon, type label, source dropdown, value editor
+- Source dropdown options depend on the property's type:
+  - `title`: Leave empty / Auto (page title) / Fixed value
+  - `url`: Leave empty / Auto (page URL) / Fixed value
+  - `rich_text`: Leave empty / Auto (page description) / Fixed value
+  - `date`: Leave empty / Auto (today) / Fixed value
+  - `select` / `status`: Leave empty / Fixed value (dropdown of options)
+  - `multi_select`: Leave empty / Fixed value (multi-chip picker)
+  - `relation`: Leave empty / Fixed value (multi-chip picker — related DB pages lazy-loaded)
+  - `checkbox`: Leave empty / Fixed value (toggle)
+  - `number`: Leave empty / Fixed value (number input)
+  - `email`, `phone_number`: Leave empty / Fixed value (text input)
+- Read-only property types (`formula`, `rollup`, `created_time`, `last_edited_time`, `created_by`, `last_edited_by`, `unique_id`, `button`) are filtered out entirely
+
+Relation pickers lazy-load — when the user switches to "Fixed value" on a relation property, the extension calls `GET_RELATION_OPTIONS` on the related database to populate the chip picker. Results are cached in-memory per session, keyed by relation database ID.
 
 ### 8.3 Options: context-aware Refresh button
 
@@ -255,18 +302,20 @@ The `↻ Refresh` link in the template editor does different things based on whe
 
 ## 10. How to extend
 
-### Adding a new bookmark field (e.g. "highlight quote")
+### Adding a new "auto" capture source (e.g. reading time, word count)
 
-1. Add the slot to `COMPATIBLE_TYPES` in `options.js` with the compatible Notion types.
-2. Add a row to the mapping table in `options.html`.
-3. Add a field input to the popup form + a corresponding entry in `applyTemplate()`.
-4. Extend `payload.fields` in `handleSave()` (popup.js) and `buildProperties()` (service-worker.js).
+1. In `service-worker.js` → `extractPageMetadata()`: compute the value and return it on the tab info object.
+2. In `service-worker.js` → `resolveTemplateValue()`: add a case for the new `autoField` key.
+3. In `options.js` → `autoOptionFor(type)`: add the auto option for whichever property types are compatible (typically `rich_text` or `number`).
+4. In `popup.js` → `autoValueFromTab()`: add the case so the popup can preview/edit the captured value.
 
 ### Supporting a new Notion property type (e.g. `people`)
 
-1. Add the type to the relevant entries in `COMPATIBLE_TYPES`.
-2. Add a case to `formatValue()` in `service-worker.js` that returns the correct JSON shape.
-3. Consider whether the user-facing input should change (e.g. a user picker vs. a text field).
+1. In `service-worker.js` → `getDatabaseSchema()`: if the type needs extra metadata (like `select` needs its options), return it.
+2. In `service-worker.js` → `formatValue()`: add a case that returns the correct Notion JSON shape for that type.
+3. In `options.js` → `renderValueEditor()`: add a case for the input UI (e.g. a searchable user picker for `people`).
+4. In `options.js` → `typeIcon()`: add an icon character.
+5. In `options.js` → `wireValueEditor()`: wire up the input change event to update `state.editing.properties[propName].value`.
 
 ### Adding a screenshot option (e.g. "full page" vs. "visible area")
 

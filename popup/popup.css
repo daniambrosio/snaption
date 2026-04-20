@@ -50,9 +50,23 @@ body {
 }
 .icon-btn:hover { background: #f0f0f0; }
 
+/* Template preview (fixed-value summary) */
+.template-preview {
+  margin-top: 10px;
+  border: 1px dashed #e0e0e0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fafafa;
+}
+.preview-label { font-size: 10px; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+.preview-list { display: flex; flex-direction: column; gap: 3px; }
+.preview-item { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.preview-name { color: #555; font-weight: 500; }
+.preview-value { color: #222; text-align: right; }
+
 /* Screenshot preview */
 .screenshot-preview {
-  margin-bottom: 12px;
+  margin-top: 12px;
   border: 1px solid #e5e5e5;
   border-radius: 6px;
   overflow: hidden;
