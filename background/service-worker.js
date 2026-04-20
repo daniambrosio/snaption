@@ -16,6 +16,7 @@ async function handleMessage(msg) {
     case 'GET_DATABASES':          return getDatabases();
     case 'GET_DB_SCHEMA':          return getDatabaseSchema(msg.databaseId);
     case 'GET_RELATION_OPTIONS':   return getRelationOptions(msg);
+    case 'LOAD_TEMPLATES':         return loadTemplates();
     case 'SAVE_BOOKMARK':          return saveBookmark(msg.payload);
     default: throw new Error(`Unknown message type: ${msg.type}`);
   }
@@ -145,25 +146,40 @@ async function getDatabases() {
 
 async function getDatabaseSchema(databaseId) {
   const db = await notionFetch(`/databases/${databaseId}`);
-  const properties = Object.entries(db.properties).map(([name, prop]) => {
-    const base = { name, type: prop.type, id: prop.id };
-    switch (prop.type) {
-      case 'select':       return { ...base, options: prop.select.options };
-      case 'multi_select': return { ...base, options: prop.multi_select.options };
-      case 'status':       return { ...base, options: prop.status.options };
-      case 'relation':     return { ...base, relationDatabaseId: prop.relation.database_id };
-      case 'formula':
-      case 'rollup':
-      case 'created_time':
-      case 'last_edited_time':
-      case 'created_by':
-      case 'last_edited_by':
-      case 'unique_id':
-      case 'button':
-        return { ...base, readonly: true };
-      default: return base;
+
+  // Parse each property defensively — never let one weird property break the whole schema
+  const properties = [];
+  for (const [name, prop] of Object.entries(db.properties || {})) {
+    try {
+      const base = { name, type: prop.type, id: prop.id };
+      switch (prop.type) {
+        case 'select':
+          properties.push({ ...base, options: prop.select?.options || [] }); break;
+        case 'multi_select':
+          properties.push({ ...base, options: prop.multi_select?.options || [] }); break;
+        case 'status':
+          properties.push({ ...base, options: prop.status?.options || [] }); break;
+        case 'relation':
+          properties.push({ ...base, relationDatabaseId: prop.relation?.database_id || null }); break;
+        case 'formula':
+        case 'rollup':
+        case 'created_time':
+        case 'last_edited_time':
+        case 'created_by':
+        case 'last_edited_by':
+        case 'unique_id':
+        case 'button':
+          properties.push({ ...base, readonly: true }); break;
+        default:
+          properties.push(base);
+      }
+    } catch (err) {
+      // Never drop a property silently — surface it as "unknown" so the user sees it's there
+      console.warn(`[Snaption] Failed to parse property "${name}"`, err);
+      properties.push({ name, type: prop?.type || 'unknown', id: prop?.id, parseError: err.message });
     }
-  });
+  }
+
   return {
     id: databaseId,
     title: db.title?.[0]?.plain_text || 'Untitled',
@@ -252,8 +268,52 @@ async function uploadScreenshot(base64DataUrl) {
   return fileUploadId;
 }
 
+// Load templates from storage, migrating any old-format entries in place.
+// This is the canonical path — popup and options both call it to avoid divergence.
+async function loadTemplates() {
+  const stored = await chrome.storage.sync.get(['templates', 'defaultTemplateId']);
+  const templates = (stored.templates || []).map(migrateTemplate);
+
+  // If any migration changed the shape, persist it
+  const needsPersist = templates.some(t => !stored.templates.find(s => s.id === t.id && s.properties));
+  if (needsPersist) {
+    await chrome.storage.sync.set({ templates });
+  }
+
+  return {
+    templates,
+    defaultTemplateId: stored.defaultTemplateId || null,
+  };
+}
+
+// Migrate old-format templates ({ mapping: {title,url,description,tags} })
+// to the new format ({ properties: { [notionPropName]: { mode, autoField?, value? } } }).
+// Idempotent — safe to call on already-migrated templates.
+function migrateTemplate(tpl) {
+  if (!tpl) return tpl;
+  if (tpl.properties) return tpl;         // already migrated
+  if (!tpl.mapping) {                     // no properties AND no mapping → nothing to do
+    tpl.properties = tpl.properties || {};
+    return tpl;
+  }
+
+  const properties = {};
+  if (tpl.mapping.title)       properties[tpl.mapping.title.name]       = { mode: 'auto', autoField: 'title' };
+  if (tpl.mapping.url)         properties[tpl.mapping.url.name]         = { mode: 'auto', autoField: 'url' };
+  if (tpl.mapping.description) properties[tpl.mapping.description.name] = { mode: 'auto', autoField: 'description' };
+  // Old 'tags' slot: user entered tags in the popup at save time; new model has no
+  // equivalent since tags must now be fixed at template creation. Leave as skip.
+
+  tpl.properties = properties;
+  delete tpl.mapping;
+  return tpl;
+}
+
 // ─── Save bookmark ────────────────────────────────────────────────────────────
 async function saveBookmark({ databaseId, template, tabInfo, screenshot, overrides = {} }) {
+  // Safety net: migrate on the fly if an old-format template slipped through
+  template = migrateTemplate(template);
+
   // Always fetch fresh schema at save time — catches property renames/removals
   const schema = await getDatabaseSchema(databaseId);
   const properties = buildPropertiesFromTemplate(template, tabInfo, schema, overrides);

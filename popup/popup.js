@@ -18,8 +18,8 @@ async function init() {
     return;
   }
 
-  const stored = await chrome.storage.sync.get(['templates', 'defaultTemplateId']);
-  state.templates = stored.templates || [];
+  const { templates, defaultTemplateId } = await msg('LOAD_TEMPLATES');
+  state.templates = templates || [];
 
   if (!state.templates.length) {
     $('setup-message').textContent = 'No templates yet. Create one to start saving.';
@@ -27,7 +27,7 @@ async function init() {
     return;
   }
 
-  state.selectedTemplateId = stored.defaultTemplateId || state.templates[0].id;
+  state.selectedTemplateId = defaultTemplateId || state.templates[0].id;
   $('workspace-name').textContent = authStatus.workspace || 'Notion';
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

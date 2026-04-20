@@ -17,7 +17,6 @@ async function init() {
 
   if (authStatus.authenticated) {
     await loadStorage();
-    await migrateOldTemplates();
     await ensureDatabasesLoaded();
     renderTemplates();
     $('section-templates').classList.remove('hidden');
@@ -25,29 +24,13 @@ async function init() {
 }
 
 async function loadStorage() {
-  const stored = await chrome.storage.sync.get(['databases', 'templates', 'defaultTemplateId']);
+  // Templates go through service worker (canonical path: migration happens there)
+  const { templates, defaultTemplateId } = await msg('LOAD_TEMPLATES');
+  state.templates = templates || [];
+  state.defaultTemplateId = defaultTemplateId || null;
+
+  const stored = await chrome.storage.sync.get(['databases']);
   state.databases = stored.databases || [];
-  state.templates = stored.templates || [];
-  state.defaultTemplateId = stored.defaultTemplateId || null;
-}
-
-// Migrate templates from the old hardcoded-mapping model to the new properties model
-async function migrateOldTemplates() {
-  let changed = false;
-  for (const tpl of state.templates) {
-    if (tpl.properties) continue; // already new format
-    if (!tpl.mapping) continue;
-
-    const properties = {};
-    // Old mapping: { title: {name, type}, url: {name, type}, description: ..., tags: ... }
-    if (tpl.mapping.title)       properties[tpl.mapping.title.name]       = { mode: 'auto', autoField: 'title' };
-    if (tpl.mapping.url)         properties[tpl.mapping.url.name]         = { mode: 'auto', autoField: 'url' };
-    if (tpl.mapping.description) properties[tpl.mapping.description.name] = { mode: 'auto', autoField: 'description' };
-    tpl.properties = properties;
-    delete tpl.mapping;
-    changed = true;
-  }
-  if (changed) await chrome.storage.sync.set({ templates: state.templates });
 }
 
 async function ensureDatabasesLoaded() {
@@ -157,6 +140,8 @@ async function loadSchemaAndRenderEditor(databaseId) {
   const res = await msg('GET_DB_SCHEMA', { databaseId });
   if (res.error) { showEditorError(res.error); return; }
 
+  console.log(`[Snaption] Schema for "${res.title}":`, res.properties.map(p => `${p.name} (${p.type}${p.readonly ? ', readonly' : ''})`));
+
   state.currentSchema = res;
   state.editing.databaseTitle = res.title;
 
@@ -211,13 +196,16 @@ function typeIcon(type) {
 function renderPropertiesEditor(schemaProps, config) {
   const container = $('properties-editor');
   const visible = schemaProps.filter(p => !p.readonly);
+  const hiddenCount = schemaProps.length - visible.length;
 
   if (!visible.length) {
     container.innerHTML = '<p class="hint">This database has no writable properties.</p>';
     return;
   }
 
-  container.innerHTML = visible.map(prop =>
+  const countLabel = `<div class="property-count">Loaded ${schemaProps.length} propert${schemaProps.length === 1 ? 'y' : 'ies'} from this database${hiddenCount ? ` (${hiddenCount} read-only hidden)` : ''}.</div>`;
+
+  container.innerHTML = countLabel + visible.map(prop =>
     renderPropertyRow(prop, config[prop.name] || { mode: defaultModeFor(prop.type) })
   ).join('');
 
