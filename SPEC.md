@@ -1,8 +1,10 @@
 # Snaption — Chrome extension spec
 
-> A Chrome extension for saving web pages (URL + screenshot + metadata) into Notion databases, with per-database templates and schema-aware field mapping. Manifest V3. No backend, no OAuth, no third-party services.
+> A Chrome extension for saving web pages (URL + screenshot + metadata) into Notion databases, with per-database templates, schema-aware property editing, and light/dark/auto theme. Manifest V3. No backend, no OAuth, no third-party services.
 
 This document is the canonical reference for LLMs and humans working on this codebase. Read it before making changes.
+
+**Current version:** v1.0.0 (tagged). First shipped release, fully functional for authors who want a Notion bookmarker for their own workspaces.
 
 ---
 
@@ -44,17 +46,23 @@ If a proposed change violates any of these, stop and confirm with the user befor
 │   ├── popup.js                  Reads current tab, shows form, dispatches SAVE_BOOKMARK
 │   └── popup.css
 ├── options/
-│   ├── options.html              Settings page (token + templates)
-│   ├── options.js                Template CRUD, schema-aware mapping UI
+│   ├── options.html              Settings page (token + templates + appearance)
+│   ├── options.js                Template CRUD, schema-aware property editor
 │   └── options.css
+├── shared/
+│   └── theme.js                  Theme management module (imported by popup + options)
 ├── icons/
-│   ├── icon{16,48,128}.png       Generated procedurally (see make-icons.mjs)
-│   ├── make-icons.mjs            Node script to regenerate icons
-│   └── generate-icons.html       Fallback: open in Chrome, save canvases as PNG
-└── SPEC.md                       This file
+│   ├── icon-source.png           Master (1254×1254) — source of truth for resizes
+│   ├── icon16.png                Toolbar icon (stepped downscale for legibility)
+│   ├── icon48.png                Extensions page
+│   └── icon128.png               Chrome Web Store + install dialog
+├── SPEC.md                       This file
+└── .gitignore
 ```
 
 **No bundler, no package.json, no dependencies.** Vanilla ES modules, loaded by Chrome's MV3 service worker with `"type": "module"`.
+
+**Icons** are generated once from `icon-source.png` via `sips` on macOS — no runtime generator. For the 16 px size specifically, use a stepped downscale (`1100×1100 crop → 512 → 128 → 32 → 16`) to preserve the S glyph's legibility; a one-shot 1254→16 produces a muddy result.
 
 ---
 
@@ -69,6 +77,9 @@ All persistent state lives in `chrome.storage.sync`:
 | `databases` | `[{ id, title, icon }]` | Cached list of accessible databases |
 | `templates` | `Template[]` | User's saved templates (see below) |
 | `defaultTemplateId` | string | Which template is pre-selected in the popup |
+| `theme` | `'light' \| 'dark' \| 'system'` | UI theme preference (default `system`) |
+
+Additionally, `localStorage` mirrors `theme` under the key `snaption-theme` to allow a synchronous zero-flash theme bootstrap in the HTML `<head>` (see §9).
 
 ### Template shape
 
@@ -163,7 +174,7 @@ Screenshot upload is **best-effort**: if it fails, the page is still saved and t
 
 ### 6.1 Property emission by type
 
-`buildProperties()` in `service-worker.js` dispatches on the mapped property's `type`. Each Notion type wants a different JSON shape:
+`formatValue(type, value)` in `service-worker.js` dispatches on the mapped property's `type`. Each Notion type wants a different JSON shape:
 
 | Type | Emitted shape |
 |------|---------------|
@@ -171,13 +182,18 @@ Screenshot upload is **best-effort**: if it fails, the page is still saved and t
 | `rich_text` | `{ rich_text: [{ text: { content } }] }` |
 | `url` | `{ url: "..." }` |
 | `email` | `{ email: "..." }` |
+| `phone_number` | `{ phone_number: "..." }` |
 | `multi_select` | `{ multi_select: [{ name }, ...] }` |
 | `select` | `{ select: { name } }` |
+| `status` | `{ status: { name } }` |
 | `checkbox` | `{ checkbox: true|false }` |
 | `number` | `{ number: 42 }` |
-| `date` | `{ date: { start: "ISO-8601" } }` |
+| `date` | `{ date: { start: "YYYY-MM-DD" } }` |
+| `relation` | `{ relation: [{ id: "<page-id>" }, ...] }` |
 
 Using the wrong shape returns a `validation_error` from Notion and rejects the entire page create.
+
+**Defensive schema parsing:** `getDatabaseSchema()` wraps each property in try/catch. A single malformed property (e.g. `prop.relation` unexpectedly null for some relation configurations) would otherwise abort the whole schema read. Properties that fail parsing are returned with `parseError` set — they still appear in the editor, just as an `unknown` type with a warning, so the user can see them rather than silently missing them.
 
 ### 6.2 File uploads — three bugs to not repeat
 
@@ -254,11 +270,13 @@ Injected via `chrome.scripting.executeScript` at popup open time (not via `conte
 
 The popup treats the template's configured properties in three buckets:
 
-- **`auto` properties** render as editable inputs prefilled with the captured page value. The user can edit these before saving — their edits flow to `SAVE_BOOKMARK.overrides` and take precedence over the auto value.
+- **`auto` properties** render as editable inputs prefilled with the captured page value. The user can edit these before saving — their edits flow to `SAVE_BOOKMARK.overrides` and take precedence over the auto value. Each auto field also has a subtle **✕** button (visible on hover) that one-click-flips that property to `mode: 'skip'` and persists to storage — the fastest way for a user to stop seeing a noisy auto field.
 - **`fixed` properties** render in a compact "This template also sets:" preview at the bottom (name → value). Not editable in the popup — edit the template in Options to change them.
 - **`skip`-mode or omitted properties** are invisible — the database's default applies.
 
 Each field's label is the actual Notion property name from the template (e.g. "Task" not "Title", "Notes" not "Description"). There are no hardcoded Snaption field labels anywhere in the popup.
+
+**Schema filter at popup open:** The popup fetches the target database's current schema in parallel with tab info. Any template property whose name no longer exists in the schema is silently dropped from rendering, so a renamed/deleted property doesn't surface as a phantom field.
 
 ### 8.2 Options: property-centric template editor
 
@@ -277,6 +295,7 @@ The template editor does NOT ask "which property maps to which Snaption slot?" I
   - `number`: Leave empty / Fixed value (number input)
   - `email`, `phone_number`: Leave empty / Fixed value (text input)
 - Read-only property types (`formula`, `rollup`, `created_time`, `last_edited_time`, `created_by`, `last_edited_by`, `unique_id`, `button`) are filtered out entirely
+- A visible `Loaded N properties from this database (M read-only hidden)` line above the rows lets users verify the load matches what they see in Notion. The raw schema is also logged to DevTools console for debugging.
 
 Relation pickers lazy-load — when the user switches to "Fixed value" on a relation property, the extension calls `GET_RELATION_OPTIONS` on the related database to populate the chip picker. Results are cached in-memory per session, keyed by relation database ID.
 
@@ -286,21 +305,89 @@ The `↻ Refresh` link in the template editor does different things based on whe
 - DB selected → re-fetches *that DB's schema* (for when the user added/removed a property in Notion)
 - No DB selected → re-fetches the *list of databases* (for when the user shared a new DB with the integration)
 
+### 8.4 Keyboard shortcuts
+
+- **⌘+Enter (macOS) / Ctrl+Enter (Windows/Linux)** in the popup triggers Save to Notion from anywhere — including while typing in any input or textarea. Implemented as a `keydown` listener on `document` that checks `key === 'Enter' && (metaKey || ctrlKey)`. Three safety guards:
+  1. `btn-save.disabled` — don't fire while a save is in flight
+  2. `btn-save.offsetParent === null` — don't fire when the save view is hidden (setup screen or success screen)
+  3. `e.preventDefault()` — stop any native newline-insert behaviour
+- A subtle `⌘↵` hint chip on the Save button surfaces this for discoverability; full tooltip (`⌘/Ctrl + Enter`) shows on hover.
+
+### 8.5 Theme picker (Light / Auto / Dark)
+
+Both the popup header and the Options page expose a segmented theme picker (☀ / ◐ / ☾). Preference is persisted in `chrome.storage.sync.theme` and mirrored to `localStorage` for zero-flash bootstrap. See §9 for the full mechanism.
+
 ---
 
-## 9. Lessons learned (don't make these mistakes again)
+## 9. Theme management (dark mode)
+
+### 9.1 Three states
+
+| State | Behaviour |
+|-------|-----------|
+| `light` | Force light, ignore OS |
+| `dark` | Force dark, ignore OS |
+| `system` (default) | Follow `prefers-color-scheme` (OS setting), updating live on OS changes |
+
+### 9.2 Canonical source and mirror
+
+- `chrome.storage.sync.theme` is canonical and syncs across the user's devices via their Google account.
+- `localStorage.snaption-theme` is a local cache used only for the synchronous zero-flash bootstrap in the HTML `<head>`.
+- `shared/theme.js` handles loading, applying, and persisting — both popup and options import from it.
+
+### 9.3 CSS model
+
+- Light values are defined on `:root` (the default state).
+- Dark values are defined on `html.theme-dark` — the class is applied by JS based on resolved theme.
+- `color-scheme: light | dark` is set on the same selectors so native form controls (dropdowns, scrollbars, autofill highlights) match the chosen mode.
+- **No `@media (prefers-color-scheme: dark)`** anywhere in CSS — JS is always the authority on which class is present.
+
+### 9.4 Zero-flash bootstrap
+
+Each `*.html` has an inline `<script>` in `<head>` that runs synchronously **before** the stylesheet is applied:
+
+```html
+<script>
+  (function () {
+    try {
+      var pref = localStorage.getItem('snaption-theme') || 'system';
+      var resolved = pref === 'system'
+        ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        : pref;
+      if (resolved === 'dark') document.documentElement.classList.add('theme-dark');
+    } catch (e) {}
+  })();
+</script>
+```
+
+This ensures a dark-preference user never sees a white flash on popup open. `chrome.storage.sync` is async and would be too slow for this; localStorage is the trick that bridges the gap.
+
+### 9.5 Cross-context sync
+
+`chrome.storage.onChanged` listeners in `shared/theme.js` re-apply the theme whenever any extension context changes it, so changing the theme in the popup instantly reflects in an already-open Options page, and vice versa.
+
+### 9.6 Icons and dark mode
+
+**Single icon set works for both modes.** The icon is a stylized S on a rounded white frame — the white frame gives it its own contrast against any browser chrome color. Chrome MV3 has no manifest field for per-theme icons anyway (that's a Firefox feature: `theme_icons`). The `chrome.action.setIcon()` API could swap at runtime based on a `matchMedia` listener, but adds a two-icon-set maintenance burden we have not judged necessary.
+
+---
+
+## 10. Lessons learned (don't make these mistakes again)
 
 1. **Don't assume Notion's API shape — verify before implementing.** The file_uploads bugs came from half-remembered docs. When in doubt, hit the actual endpoint against a scratch database.
 2. **"Associated workspace" in Notion's public integration settings is just a developer admin field.** It does NOT restrict who can authenticate — users OAuth to *their own* workspaces. We briefly thought this was a blocker for distribution. It wasn't.
 3. **Don't propose third-party image hosts as the "solution" for Notion screenshots.** Notion has native file upload (`/v1/file_uploads`). Using imgBB/Cloudinary introduces an unnecessary dependency and a second place for credentials to leak.
 4. **The "client_secret in the extension" issue only matters for OAuth.** For internal integration tokens, there's no secret that belongs to *us* — the user pastes their *own* token. We never hold, proxy, or store anyone else's credentials.
 5. **`<select>.change` is user-only.** If you rebuild a select programmatically, call the next step explicitly.
-6. **Template schema should carry property types.** Storing just property names forces lookups at save time and can't handle users renaming properties gracefully. Storing `{ name, type }` makes save-time emission unambiguous.
+6. **Don't let one malformed property break the whole schema parse.** A single map over `Object.entries(db.properties)` with no per-entry try/catch will abort the entire schema read if any property has an unexpected sub-object shape — silently dropping *all* properties from the editor. Always parse defensively and surface unknown-type properties instead of hiding them.
 7. **Always surface the actual error text from upstream APIs.** A generic "Failed to upload" hid three distinct bugs for a full iteration. The error now includes status code + first 200 chars of the response body.
+8. **Migrations must live in the service worker, not a UI surface.** The first template migration ran only in `options.js`; the popup read storage directly and saw an unmigrated shape, silently sending zero properties. Now `LOAD_TEMPLATES` is the canonical message that hits the service worker, where `migrateTemplate()` runs before returning. `saveBookmark` also has an on-the-fly migration as a safety net.
+9. **`prefers-color-scheme` media queries alone give users no control.** Providing a Light/Auto/Dark picker lets users override OS-level preference inside the extension. Drop the passive `@media` rule when you adopt a stored preference — having both creates specificity tangles.
+10. **sips one-shot downscaling to 16 px is muddy.** For toolbar icons, do a stepped downscale (crop tight → 512 → 128 → 32 → 16) to preserve the glyph.
 
 ---
 
-## 10. How to extend
+## 11. How to extend
 
 ### Adding a new "auto" capture source (e.g. reading time, word count)
 
@@ -321,9 +408,20 @@ The `↻ Refresh` link in the template editor does different things based on whe
 
 Current implementation only captures the visible viewport (`chrome.tabs.captureVisibleTab`). Full-page requires scrolling + stitching or using the DevTools protocol (`chrome.debugger`), both significantly more complex. Before adding, evaluate whether the added permission (`debugger`) is acceptable — users are generally wary of that prompt.
 
+### Changing the theme token palette
+
+Edit the two CSS files (`popup.css`, `options.css`). Each has a `:root { ... }` block for light values and an `html.theme-dark { ... }` block for dark values. Don't reintroduce `@media (prefers-color-scheme: dark)` — it would fight the JS-driven class system.
+
+### Per-theme icons at runtime (if ever needed)
+
+1. Add a dark-specific icon set (`icon16-dark.png`, etc).
+2. In `popup/popup.js` or a dedicated module, listen to `matchMedia('(prefers-color-scheme: dark)')` and the storage change.
+3. Call `chrome.action.setIcon({ path: { '16': 'icons/icon16-dark.png', ... } })` on change.
+4. Run once on popup open to set initial state (service worker has no `matchMedia`).
+
 ---
 
-## 11. Things NOT to do
+## 12. Things NOT to do
 
 - Do not add a backend proxy (violates ship-and-forget).
 - Do not add OAuth support (requires the above).
@@ -332,3 +430,6 @@ Current implementation only captures the visible viewport (`chrome.tabs.captureV
 - Do not request the `debugger` permission without user discussion.
 - Do not introduce a build tool / bundler unless the app genuinely outgrows vanilla JS (right now it doesn't).
 - Do not commit the user's actual Notion token (it lives in `chrome.storage.sync`, never in the repo).
+- Do not reintroduce `@media (prefers-color-scheme: dark)` in CSS — the theme picker is now JS-driven and the class system is authoritative.
+- Do not read templates directly from `chrome.storage.sync` in the popup or options — always go through the `LOAD_TEMPLATES` service worker message so migrations run.
+- Do not hardcode Snaption field slots (`title` / `url` / `description` / `tags`) back into the template model. Templates are property-centric; the previous slot-based approach is a resolved dead end (see Lesson 8).
