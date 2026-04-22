@@ -143,6 +143,18 @@ textarea { resize: none; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary { background: #000; color: #fff; }
 .btn-primary:hover:not(:disabled) { background: #222; }
+
+.kbd-hint {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.85);
+  letter-spacing: 0.04em;
+}
 .btn-secondary { background: #f0f0f0; color: #333; }
 .btn-secondary:hover { background: #e5e5e5; }
 

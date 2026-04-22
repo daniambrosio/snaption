@@ -266,4 +266,13 @@ $('open-notion-link')?.addEventListener('click', (e) => {
   chrome.tabs.create({ url: e.currentTarget.href });
 });
 
+// Cmd+Enter (macOS) or Ctrl+Enter triggers Save to Notion from anywhere in the popup
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
+  const saveBtn = $('btn-save');
+  if (!saveBtn || saveBtn.disabled || saveBtn.offsetParent === null) return;
+  e.preventDefault();
+  saveBtn.click();
+});
+
 init();
