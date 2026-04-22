@@ -3,12 +3,35 @@
 <head>
   <meta charset="UTF-8" />
   <title>Snaption · Settings</title>
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem('snaption-theme') || 'system';
+        var resolved = pref === 'system'
+          ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : pref;
+        if (resolved === 'dark') document.documentElement.classList.add('theme-dark');
+      } catch (e) {}
+    })();
+  </script>
   <link rel="stylesheet" href="options.css" />
 </head>
 <body>
   <div class="container">
     <h1>Snaption</h1>
     <p class="tagline">Snap any page into Notion — with caption, tags, and screenshot.</p>
+
+    <!-- Appearance -->
+    <section class="card">
+      <div class="section-header">
+        <h2>Appearance</h2>
+        <div class="theme-picker" id="theme-picker" role="group" aria-label="Theme">
+          <button data-theme="light" title="Light">☀ Light</button>
+          <button data-theme="system" title="Match system">◐ Auto</button>
+          <button data-theme="dark" title="Dark">☾ Dark</button>
+        </div>
+      </div>
+    </section>
 
     <!-- Auth section -->
     <section class="card" id="section-auth">

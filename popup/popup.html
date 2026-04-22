@@ -4,6 +4,19 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Snaption</title>
+  <!-- Zero-flash theme bootstrap: read cached theme from localStorage before CSS paints.
+       The canonical source is chrome.storage.sync, synced to localStorage on every change. -->
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem('snaption-theme') || 'system';
+        var resolved = pref === 'system'
+          ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : pref;
+        if (resolved === 'dark') document.documentElement.classList.add('theme-dark');
+      } catch (e) {}
+    })();
+  </script>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
@@ -27,7 +40,14 @@
     <div id="view-save" class="view hidden">
       <header class="popup-header">
         <span id="workspace-name" class="workspace"></span>
-        <button id="btn-settings" class="icon-btn" title="Settings">⚙</button>
+        <div class="header-actions">
+          <div class="theme-picker" id="theme-picker" role="group" aria-label="Theme">
+            <button data-theme="light" title="Light" aria-label="Light">☀</button>
+            <button data-theme="system" title="Match system" aria-label="System">◐</button>
+            <button data-theme="dark" title="Dark" aria-label="Dark">☾</button>
+          </div>
+          <button id="btn-settings" class="icon-btn" title="Settings">⚙</button>
+        </div>
       </header>
 
       <!-- Template picker -->

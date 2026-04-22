@@ -1,5 +1,9 @@
+import { initThemePicker } from '../shared/theme.js';
+
 const msg = (type, data = {}) => chrome.runtime.sendMessage({ type, ...data });
 const $ = (id) => document.getElementById(id);
+
+initThemePicker($('theme-picker'));
 
 let state = {
   tabInfo: null,
