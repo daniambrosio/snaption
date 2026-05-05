@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Snaption – Privacy Policy</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 680px;
+      margin: 60px auto;
+      padding: 0 24px;
+      color: #222;
+      line-height: 1.7;
+    }
+    h1 { font-size: 1.6rem; margin-bottom: 4px; }
+    h2 { font-size: 1.1rem; margin-top: 2rem; }
+    p, li { font-size: 0.97rem; }
+    .updated { color: #888; font-size: 0.85rem; margin-bottom: 2rem; }
+    a { color: #4a6cf7; }
+  </style>
+</head>
+<body>
+
+  <h1>Snaption – Privacy Policy</h1>
+  <p class="updated">Last updated: May 5, 2026</p>
+
+  <p>
+    Snaption is a Chrome extension that saves web pages — including their URL, a screenshot,
+    and user-defined metadata — to Notion databases. This policy explains what data the
+    extension handles and how.
+  </p>
+
+  <h2>Data we collect</h2>
+  <p>Snaption stores the following data <strong>locally in your own browser</strong> via
+  <code>chrome.storage.sync</code>:</p>
+  <ul>
+    <li>Your <strong>Notion internal integration token</strong> — entered by you in the
+    Options page and used exclusively to authenticate API calls to Notion on your behalf.</li>
+    <li>Your <strong>Notion database configurations and templates</strong> — the database IDs,
+    property mappings, and display preferences you define.</li>
+    <li>Your <strong>theme preference</strong> (light / dark / system).</li>
+  </ul>
+
+  <h2>How data is used</h2>
+  <ul>
+    <li>Your Notion token is sent <strong>only to <code>api.notion.com</code></strong> — the
+    official Notion API — as an Authorization header. It is never sent to any server owned or
+    operated by Snaption.</li>
+    <li>Screenshots captured by the extension are uploaded <strong>directly to Notion</strong>
+    via Notion's file upload API. They do not pass through any intermediary server.</li>
+    <li>No analytics, crash reports, or telemetry are collected.</li>
+  </ul>
+
+  <h2>Data sharing</h2>
+  <p>
+    Snaption does not share, sell, or transmit any of your data to third parties.
+    The only external service the extension communicates with is the
+    <a href="https://developers.notion.com" target="_blank" rel="noopener">Notion API</a>,
+    at your explicit direction (when you press Save).
+  </p>
+
+  <h2>Data storage</h2>
+  <p>
+    All data is stored in <code>chrome.storage.sync</code>, which is managed by your
+    Chrome/Google account and encrypted by Chrome. Snaption has no access to this data
+    outside of the extension's own context. You can delete all stored data at any time
+    by uninstalling the extension or clearing its storage from Chrome's extension settings.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Questions? Open an issue at
+    <a href="https://github.com/daniambrosio/snaption" target="_blank" rel="noopener">
+      github.com/daniambrosio/snaption
+    </a>.
+  </p>
+
+</body>
+</html>
