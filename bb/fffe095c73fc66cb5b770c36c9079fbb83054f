@@ -1,0 +1,19 @@
+privacy.html
+  s_9bba7f00dda6f6::t_ce88a7a7799535 10,21-24,30,33-35,38-48,50-69,73,75-91,95,97-98,100-104,108,110-178,182,184,187-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "bbfffe095c73fc66cb5b770c36c9079fbb83054f",
+  "prompts": {},
+  "sessions": {
+    "s_9bba7f00dda6f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8a2f8d33-3510-4c7a-a823-4619b93d7023",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Daniel Rodrigues Ambrosio <daniel.ambrosio@gmail.com>"
+    }
+  }
+}
