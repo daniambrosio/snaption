@@ -7,7 +7,7 @@
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      max-width: 680px;
+      max-width: 720px;
       margin: 60px auto;
       padding: 0 24px;
       color: #222;
@@ -18,63 +18,176 @@
     p, li { font-size: 0.97rem; }
     .updated { color: #888; font-size: 0.85rem; margin-bottom: 2rem; }
     a { color: #4a6cf7; }
+    table { border-collapse: collapse; width: 100%; margin-top: 0.5rem; font-size: 0.93rem; }
+    th, td { border: 1px solid #e2e2e2; padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: #f7f7f9; font-weight: 600; }
+    code { background: #f3f3f5; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
   </style>
 </head>
 <body>
 
   <h1>Snaption – Privacy Policy</h1>
-  <p class="updated">Last updated: May 5, 2026</p>
+  <p class="updated">Last updated: May 15, 2026</p>
 
   <p>
-    Snaption is a Chrome extension that saves web pages — including their URL, a screenshot,
-    and user-defined metadata — to Notion databases. This policy explains what data the
-    extension handles and how.
+    Snaption is a Chrome extension that saves web pages — including their URL, a screenshot
+    of the visible viewport, and page metadata — to Notion databases of your choice. This
+    policy explains what data the extension handles, where it goes, and how it is protected.
   </p>
 
-  <h2>Data we collect</h2>
-  <p>Snaption stores the following data <strong>locally in your own browser</strong> via
-  <code>chrome.storage.sync</code>:</p>
+  <p>
+    <strong>Snaption operates without any backend, server, or third-party service.</strong>
+    The only external service Snaption ever communicates with is Notion's official API, and
+    only on your explicit instruction.
+  </p>
+
+  <h2>Data Snaption handles</h2>
+
+  <p>Snaption handles the following categories of data, all of which are stored locally in
+  your own browser via <code>chrome.storage.sync</code>:</p>
+
   <ul>
-    <li>Your <strong>Notion internal integration token</strong> — entered by you in the
-    Options page and used exclusively to authenticate API calls to Notion on your behalf.</li>
-    <li>Your <strong>Notion database configurations and templates</strong> — the database IDs,
-    property mappings, and display preferences you define.</li>
-    <li>Your <strong>theme preference</strong> (light / dark / system).</li>
+    <li>
+      <strong>Authentication information</strong> — your Notion internal integration token,
+      which you create at <a href="https://www.notion.so/my-integrations" target="_blank"
+      rel="noopener">notion.so/my-integrations</a> and paste into Snaption's Options page.
+      The token is used exclusively as the <code>Authorization</code> header on requests
+      to <code>api.notion.com</code>.
+    </li>
+    <li>
+      <strong>Website content</strong> — when you click the Snaption icon on a page and
+      press Save, Snaption captures the page's URL, the page title (from <code>&lt;title&gt;</code>
+      or <code>og:title</code>), the page description (from <code>og:description</code> or
+      <code>meta[name=description]</code>), and a screenshot of the visible viewport. This
+      content is captured <em>only for the page you have explicitly chosen to save</em>,
+      and only at the moment you click the icon. No background or passive collection occurs.
+    </li>
+    <li>
+      <strong>User-defined configuration</strong> — the templates you create (database IDs,
+      property mappings, default values, default-template selection) and your theme
+      preference (light / dark / system).
+    </li>
   </ul>
 
   <h2>How data is used</h2>
+
   <ul>
-    <li>Your Notion token is sent <strong>only to <code>api.notion.com</code></strong> — the
-    official Notion API — as an Authorization header. It is never sent to any server owned or
-    operated by Snaption.</li>
-    <li>Screenshots captured by the extension are uploaded <strong>directly to Notion</strong>
-    via Notion's file upload API. They do not pass through any intermediary server.</li>
-    <li>No analytics, crash reports, or telemetry are collected.</li>
+    <li>
+      Your Notion token is sent <strong>only to <code>https://api.notion.com</code></strong>.
+      It is never transmitted to any server operated by Snaption's author or to any third party.
+    </li>
+    <li>
+      Captured page content (URL, title, description) is sent <strong>only to Notion's API</strong>,
+      as the body of the page-create request, when you press Save.
+    </li>
+    <li>
+      Screenshots are uploaded <strong>directly to Notion</strong> via Notion's official
+      <code>/v1/file_uploads</code> endpoint. They are not routed through any intermediary
+      image host, CDN, or storage provider.
+    </li>
+    <li>
+      <strong>No analytics, telemetry, crash reports, or usage tracking</strong> are collected
+      by Snaption. There is no Snaption server to send such data to.
+    </li>
   </ul>
 
   <h2>Data sharing</h2>
+
   <p>
-    Snaption does not share, sell, or transmit any of your data to third parties.
-    The only external service the extension communicates with is the
+    Snaption does not sell, rent, share, or transmit your data to any third party.
+    The only external service Snaption communicates with is the
     <a href="https://developers.notion.com" target="_blank" rel="noopener">Notion API</a>,
-    at your explicit direction (when you press Save).
+    operated by Notion Labs, Inc. Communication with Notion happens only at your explicit
+    direction (when you press Save), using credentials you have created and provided yourself.
+    Once data is delivered to Notion, it is governed by
+    <a href="https://www.notion.so/Privacy-Policy-3468d120cf614d4c9014c09f6adc9091" target="_blank"
+    rel="noopener">Notion's own Privacy Policy</a>.
   </p>
 
   <h2>Data storage</h2>
+
   <p>
-    All data is stored in <code>chrome.storage.sync</code>, which is managed by your
-    Chrome/Google account and encrypted by Chrome. Snaption has no access to this data
-    outside of the extension's own context. You can delete all stored data at any time
-    by uninstalling the extension or clearing its storage from Chrome's extension settings.
+    All extension data is stored in <code>chrome.storage.sync</code>, which is managed by
+    your Chrome/Google account and encrypted by Chrome. The data syncs across your own
+    devices when you are signed in to Chrome with the same Google account. Snaption's author
+    has no access to this data outside of the extension's own runtime context on your device.
+  </p>
+
+  <p>
+    You can delete all data Snaption has stored at any time by removing the extension from
+    Chrome (<code>chrome://extensions</code> → Remove) or by clearing its storage from
+    Chrome's extension details page. Revoking the integration in Notion
+    (<a href="https://www.notion.so/my-integrations" target="_blank" rel="noopener">notion.so/my-integrations</a>)
+    additionally invalidates the token Snaption was using.
+  </p>
+
+  <h2>Permissions used by Snaption</h2>
+
+  <p>Snaption requests the minimum permissions needed to perform its single purpose. Each
+  permission is used as follows:</p>
+
+  <table>
+    <thead>
+      <tr><th>Permission</th><th>What it is used for</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>tabs</code></td>
+        <td>Read the URL and title of the active tab when you click the Snaption icon, so they can be saved to Notion as the bookmark's URL and title.</td>
+      </tr>
+      <tr>
+        <td><code>activeTab</code></td>
+        <td>Capture a screenshot of the visible viewport of the active tab via <code>chrome.tabs.captureVisibleTab</code>, only at the moment you click the icon.</td>
+      </tr>
+      <tr>
+        <td><code>scripting</code></td>
+        <td>Inject a small, on-demand metadata-extraction function into the active tab — only when you open the Snaption popup — to read <code>og:title</code>, <code>og:description</code>, and the document title. The script does not modify the page or observe user input.</td>
+      </tr>
+      <tr>
+        <td><code>storage</code></td>
+        <td>Persist your token, templates, and theme preference in <code>chrome.storage.sync</code> so they are available the next time you open Snaption.</td>
+      </tr>
+      <tr>
+        <td><code>host_permissions: https://api.notion.com/*</code></td>
+        <td>Make API calls to Notion's official API to list your databases, read their schemas, create pages, and upload screenshots. Scoped narrowly to Notion's API host — Snaption cannot make requests to any other domain.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    Snaption does <strong>not</strong> use content scripts that match all URLs, does not
+    request the <code>webRequest</code>, <code>debugger</code>, <code>history</code>, or
+    <code>cookies</code> permissions, and does not execute any remote code. All JavaScript
+    that runs in the extension is bundled inside the extension package; no scripts are
+    loaded from any remote URL, and <code>eval()</code> and <code>new Function()</code> are
+    not used.
+  </p>
+
+  <h2>Children's privacy</h2>
+
+  <p>
+    Snaption is a productivity tool intended for adult users of the Notion platform. It is
+    not directed at children under 13 and does not knowingly collect any data from children.
+  </p>
+
+  <h2>Changes to this policy</h2>
+
+  <p>
+    If this policy changes in any material way, the updated version will be published at
+    the same URL with a new "Last updated" date. The current policy always reflects the
+    behavior of the latest version of Snaption published to the Chrome Web Store.
   </p>
 
   <h2>Contact</h2>
+
   <p>
-    Questions? Open an issue at
-    <a href="https://github.com/daniambrosio/snaption" target="_blank" rel="noopener">
-      github.com/daniambrosio/snaption
-    </a>.
+    Questions, concerns, or data-deletion requests can be directed to:
   </p>
+
+  <ul>
+    <li>Email: <a href="mailto:[YOUR_CONTACT_EMAIL]">[YOUR_CONTACT_EMAIL]</a></li>
+    <li>GitHub issues: <a href="https://github.com/daniambrosio/snaption" target="_blank" rel="noopener">github.com/daniambrosio/snaption</a></li>
+  </ul>
 
 </body>
 </html>
