@@ -1,0 +1,19 @@
+privacy.html
+  s_9bba7f00dda6f6::t_38a3da0afa866d 188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "0dd95894595a6f9bef17ec7153d08136f21c7a8f",
+  "prompts": {},
+  "sessions": {
+    "s_9bba7f00dda6f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8a2f8d33-3510-4c7a-a823-4619b93d7023",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Daniel Rodrigues Ambrosio <daniel.ambrosio@gmail.com>"
+    }
+  }
+}
